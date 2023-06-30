@@ -362,6 +362,61 @@ class PGCli:
             "\\T [format]",
             "Change the table format used to output results",
         )
+        self.pgspecial.register(
+            self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
+        )
+        self.pgspecial.register(
+            self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
+        )
+
+    def drill_down(self, pattern, **_):
+        if not re.match(r"^\w+ \d+$", pattern):
+            raise ValueError("Invalid pattern. Should be \\\\dd <table> <parent_id>")
+        table, parent_id = pattern.split()
+        q_cols = ', '.join(self.find_useful_columns(table, self.pgexecute))
+        query = f"select {q_cols} nama from {table} where parent_id = {parent_id}"
+        self.find_useful_columns(table, self.pgexecute)
+        on_error_resume = self.on_error == "RESUME"
+        return self.pgexecute.run(
+            query,
+            self.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.explain_mode,
+        )
+
+    def drill_up(self, pattern, **_):
+        if not re.match(r"^\w+ \d+( where .*)?$", pattern):
+            raise ValueError("Invalid pattern. Should be \\\\du <table> <row_id>")
+        [table, row_id, *args] = re.split(r'\s+', pattern)
+        table, row_id = pattern.split()
+        cols = self.find_useful_columns(table, self.pgexecute)
+        q_cols = ', '.join(cols)
+        qc_cols = ', '.join([f'c.{x}' for x in cols])
+        query = f"""
+        with recursive cte as (
+            select {q_cols}, 1 as depth from {table} where id = {row_id}
+            union all
+            select {qc_cols}, cte.depth + 1 from {table} as c
+            inner join cte on c.id = cte.parent_id
+        )
+        select {q_cols} from cte {' '.join(args)} order by depth desc
+        """
+        on_error_resume = self.on_error == "RESUME"
+        return self.pgexecute.run(
+            query,
+            self.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.explain_mode,
+        )
+
+    def find_useful_columns(self, table_name: str, pgexecute: PGExecute):
+        useful_cols = ['id', 'parent_id', 'level', 'kode', 'code', 'nama', 'name']
+        res = pgexecute.run(
+            f"select column_name from information_schema.columns where table_name = '{table_name}'")
+        for _, cur, *_ in res:
+            rows = cur.fetchall()
+        columns = [e[0] for e in rows]
+        return [e for e in useful_cols if e in columns]
 
     def change_table_format(self, pattern, **_):
         try:
