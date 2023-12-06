@@ -1,6 +1,9 @@
 name: pgcli
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     paths-ignore:
       - '**.rst'
@@ -11,7 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     services:
       postgres:
@@ -28,10 +31,10 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -64,6 +67,10 @@ jobs:
 
             psql -h localhost -U postgres -p 6432 pgbouncer -c 'show help'
 
+      - name: Install beta version of pendulum
+        run: pip install pendulum==3.0.0b1
+        if: matrix.python-version == '3.12'
+
       - name: Install requirements
         run: |
           pip install -U pip setuptools
@@ -86,7 +93,7 @@ jobs:
 
       - name: Run Black
         run: black --check .
-        if: matrix.python-version == '3.7'
+        if: matrix.python-version == '3.8'
 
       - name: Coverage
         run: |

@@ -1,9 +1,28 @@
 Upcoming
 ========
 
+Bug fixes:
+----------
+
+* Fix display of "short host" in prompt (with `\h`) for IPv4 addresses ([issue 964](https://github.com/dbcli/pgcli/issues/964)).
+
+
+==================
+4.0.1 (2023-10-30)
+==================
+
+Internal:
+---------
+* Allow stable version of pendulum.
+
+==================
+4.0.0 (2023-10-27)
+==================
+
 Features:
 ---------
 
+* Ask for confirmation when quitting cli while a transaction is ongoing.
 * New `destructive_statements_require_transaction` config option to refuse to execute a
   destructive SQL statement if outside a transaction. This option is off by default.
 * Changed the `destructive_warning` config to be a list of commands that are considered
@@ -16,14 +35,26 @@ Features:
   it will now not restart.
 * Config option to always run with a single connection.
 * Add comment explaining default LESS environment variable behavior and change example pager setting.
+* Added `\echo` & `\qecho` special commands. ([issue 1335](https://github.com/dbcli/pgcli/issues/1335)).
 
 Bug fixes:
 ----------
 
-* Fix \ev not producing a correctly quoted "schema"."view"
+* Fix `\ev` not producing a correctly quoted "schema"."view"
 * Fix 'invalid connection option "dsn"' ([issue 1373](https://github.com/dbcli/pgcli/issues/1373)).
 * Fix explain mode when used with `expand`, `auto_expand`, or `--explain-vertical-output` ([issue 1393](https://github.com/dbcli/pgcli/issues/1393)).
 * Fix sql-insert format emits NULL as 'None' ([issue 1408](https://github.com/dbcli/pgcli/issues/1408)).
+* Improve check for prompt-toolkit 3.0.6 ([issue 1416](https://github.com/dbcli/pgcli/issues/1416)).
+* Allow specifying an `alias_map_file` in the config that will use
+  predetermined table aliases instead of generating aliases programmatically on
+  the fly
+* Fixed SQL error when there is a comment on the first line: ([issue 1403](https://github.com/dbcli/pgcli/issues/1403))
+* Fix wrong usage of prompt instead of confirm when confirm execution of destructive query
+
+Internal:
+---------
+
+* Drop support for Python 3.7 and add 3.12.
 
 3.5.0 (2022/09/15):
 ===================
