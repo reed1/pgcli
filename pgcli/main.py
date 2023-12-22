@@ -384,6 +384,9 @@ class PGCli:
         self.pgspecial.register(
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
         )
+        self.pgspecial.register(
+            self.print_tree, "\\tree", "\\tree table", "Print tree of a table."
+        )
 
     def drill_down(self, pattern, **_):
         if not re.match(r"^\w+ \d+$", pattern):
@@ -416,6 +419,41 @@ class PGCli:
             inner join cte on c.id = cte.parent_id
         )
         select {q_cols} from cte {' '.join(args)} order by depth desc
+        """
+        on_error_resume = self.on_error == "RESUME"
+        return self.pgexecute.run(
+            query,
+            self.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.explain_mode,
+        )
+
+    def print_tree(self, pattern, **_):
+        [table, *args] = re.split(r'\s+', pattern)
+        query = f"""
+        with recursive cte as (
+            select id, parent_id,
+            cast(level as text) as level_full,
+            level, 0 as depth
+            from {table}
+            where parent_id = 0
+            union all
+            select t.id, t.parent_id,
+            concat(cte.level_full, '-', t.level) as level_full,
+            t.level, cte.depth + 1
+            from {table} t
+            inner join cte on t.parent_id = cte.id
+        )
+        select
+            depth,
+            concat(
+                repeat('*', depth),
+                case when depth > 0 then ' ' else '' end,
+                level) as level,
+            count(*) as cnt
+        from cte
+        group by depth, level
+        order by min(level_full)
         """
         on_error_resume = self.on_error == "RESUME"
         return self.pgexecute.run(
