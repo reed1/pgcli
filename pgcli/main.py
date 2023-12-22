@@ -363,6 +363,21 @@ class PGCli:
             "\\T [format]",
             "Change the table format used to output results",
         )
+
+        self.pgspecial.register(
+            self.echo,
+            "\\echo",
+            "\\echo [string]",
+            "Echo a string to stdout",
+        )
+
+        self.pgspecial.register(
+            self.echo,
+            "\\qecho",
+            "\\qecho [string]",
+            "Echo a string to the query output channel.",
+        )
+
         self.pgspecial.register(
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
         )
@@ -419,19 +434,6 @@ class PGCli:
         columns = [e[0] for e in rows]
         return [e for e in useful_cols if e in columns]
 
-        self.pgspecial.register(
-            self.echo,
-            "\\echo",
-            "\\echo [string]",
-            "Echo a string to stdout",
-        )
-
-        self.pgspecial.register(
-            self.echo,
-            "\\qecho",
-            "\\qecho [string]",
-            "Echo a string to the query output channel.",
-        )
 
     def echo(self, pattern, **_):
         return [(None, None, None, pattern)]
