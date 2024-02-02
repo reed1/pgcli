@@ -881,7 +881,7 @@ class PGCli:
                         click.secho(str(e), err=True, fg="red")
                 else:
                     if output:
-                        self.echo_via_pager("\n".join(output))
+                        self.echo_via_pager("\n".join(output), query=query)
             except KeyboardInterrupt:
                 pass
 
@@ -1336,7 +1336,7 @@ class PGCli:
             return False
         return len(lines) >= (self.prompt_app.output.get_size().rows - 4)
 
-    def echo_via_pager(self, text, color=None):
+    def echo_via_pager(self, text, color=None, query=None):
         if self.pgspecial.pager_config == PAGER_OFF or self.watch_command:
             click.echo(text, color=color)
         elif (
@@ -1351,6 +1351,11 @@ class PGCli:
             else:
                 click.echo(text, color=color)
         else:
+            skip_rvisidata = query and (
+                not query.successful or query.meta_changed \
+                or query.db_changed or query.path_changed or query.mutated
+            )
+            os.environ['RVISIDATA_SKIP'] = '1' if skip_rvisidata else '0'
             click.echo_via_pager(text, color)
 
 
