@@ -445,19 +445,19 @@ class PGCli:
             ])}
         ),
         t as (
-            select {', '.join(cols)}, 0 as depth
+            select {', '.join(cols)}, 0 as depth, kode as kode_full
             from {table}
             where
                 parent_id = 0 and
                 kode = (select kode from td where depth = 0)
             union all
-            select c.{', c.'.join(cols)}, t.depth + 1 as depth
+            select c.{', c.'.join(cols)}, t.depth + 1 as depth, concat(t.kode_full, '.', c.kode) as kode_full
             from t
             inner join {table} as c on
                 c.parent_id = t.id and
                 c.kode = (select kode from td where depth = t.depth + 1)
         )
-        select * from t
+        select kode_full, {', '.join(cols)} from t
         order by depth, id
         '''
         on_error_resume = self.on_error == "RESUME"
