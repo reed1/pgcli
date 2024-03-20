@@ -385,6 +385,9 @@ class PGCli:
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
         )
         self.pgspecial.register(
+            self.drill_down_kode, "\\dk", "\\dk table kode", "Drill down a table by dot-joined kode."
+        )
+        self.pgspecial.register(
             self.print_tree, "\\tree", "\\tree table", "Print tree of a table."
         )
 
@@ -420,6 +423,43 @@ class PGCli:
         )
         select {q_cols} from cte {' '.join(args)} order by depth desc
         """
+        on_error_resume = self.on_error == "RESUME"
+        return self.pgexecute.run(
+            query,
+            self.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.explain_mode,
+        )
+
+    def drill_down_kode(self, pattern, **_):
+        if not re.match(r"^\w+ [\w.]+$", pattern):
+            raise ValueError("Invalid pattern. Should be \\\\dk <table> <kode>")
+        [table, kode] = re.split(r'\s+', pattern)
+        cols = self.find_useful_columns(table, self.pgexecute)
+        kodes = kode.split('.')
+        query = f'''
+        with recursive td as (
+            {' union all '.join([
+                f"select {i} as depth, '{k}' as kode"
+                for i, k in enumerate(kodes)
+            ])}
+        ),
+        t as (
+            select {', '.join(cols)}, 0 as depth
+            from {table}
+            where
+                parent_id = 0 and
+                kode = (select kode from td where depth = 0)
+            union all
+            select c.{', c.'.join(cols)}, t.depth + 1 as depth
+            from t
+            inner join {table} as c on
+                c.parent_id = t.id and
+                c.kode = (select kode from td where depth = t.depth + 1)
+        )
+        select * from t
+        order by depth, id
+        '''
         on_error_resume = self.on_error == "RESUME"
         return self.pgexecute.run(
             query,
