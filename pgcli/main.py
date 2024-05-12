@@ -379,6 +379,9 @@ class PGCli:
         )
 
         self.pgspecial.register(
+            self.drill_one, "\\do", "\\do table id", "Get one row from table."
+        )
+        self.pgspecial.register(
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
         )
         self.pgspecial.register(
@@ -389,6 +392,20 @@ class PGCli:
         )
         self.pgspecial.register(
             self.print_tree, "\\tree", "\\tree table", "Print tree of a table."
+        )
+
+    def drill_one(self, pattern, **_):
+        if not re.match(r"^\w+ \d+$", pattern):
+            raise ValueError(
+                r"Invalid pattern. Should be \do <table> <row_id>")
+        [table, row_id] = re.split(r'\s+', pattern)
+        query = f"select * from {table} where id = {row_id}"
+        on_error_resume = self.on_error == "RESUME"
+        return self.pgexecute.run(
+            query,
+            self.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.explain_mode,
         )
 
     def drill_down(self, pattern, **_):
