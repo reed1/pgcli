@@ -391,7 +391,7 @@ class PGCli:
             self.drill_down_kode, "\\dk", "\\dk table kode", "Drill down a table by dot-joined kode."
         )
         self.pgspecial.register(
-            self.print_tree, "\\tree", "\\tree table", "Print tree of a table."
+            self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table."
         )
 
     def drill_one(self, pattern, **_):
@@ -487,13 +487,18 @@ class PGCli:
 
     def print_tree(self, pattern, **_):
         [table, *args] = re.split(r'\s+', pattern)
+        if len(args) == 0:
+            where = '(parent_id = 0)'
+        else:
+            root_id = int(args[0])
+            where = f'(id = {root_id})'
         query = f"""
         with recursive cte as (
             select id, parent_id,
             cast(level as text) as level_full,
             level, 0 as depth
             from {table}
-            where parent_id = 0
+            where {where}
             union all
             select t.id, t.parent_id,
             concat(cte.level_full, '-', t.level) as level_full,
