@@ -1,30 +1,27 @@
 import re
-from dataclasses import dataclass
 from pgcli.pgexecute import PGExecute
 from pgspecial.main import PGSpecial
 
 
-@dataclass
 class ReedCommands:
-    pgspecial: PGSpecial
-    pgexecute: PGExecute
-    on_error: str = "RESUME"
-    explain_mode: str = "OFF"
+
+    def __init__(self, pgcli):
+        self.pgcli = pgcli
 
     def register_special_commands(self) -> None:
-        self.pgspecial.register(
+        self.pgcli.pgspecial.register(
             self.drill_one, "\\do", "\\do table [id]", "Get one row from table."
         )
-        self.pgspecial.register(
+        self.pgcli.pgspecial.register(
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
         )
-        self.pgspecial.register(
+        self.pgcli.pgspecial.register(
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
         )
-        self.pgspecial.register(
+        self.pgcli.pgspecial.register(
             self.drill_down_kode, "\\dk", "\\dk table kode", "Drill down a table by dot-joined kode."
         )
-        self.pgspecial.register(
+        self.pgcli.pgspecial.register(
             self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table."
         )
 
@@ -38,12 +35,12 @@ class ReedCommands:
         elif len(args) == 1:
             row_id = int(args[0])
             query = f"select * from {table} where id = {row_id}"
-        on_error_resume = self.on_error == "RESUME"
-        return self.pgexecute.run(
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
             query,
-            self.pgspecial,
+            self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
-            explain_mode=self.explain_mode,
+            explain_mode=self.pgcli.explain_mode,
         )
 
     def drill_down(self, pattern, **_):
@@ -51,16 +48,17 @@ class ReedCommands:
             raise ValueError(
                 "Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
-        q_cols = ', '.join(self.find_useful_columns(table, self.pgexecute))
+        q_cols = ', '.join(self.find_useful_columns(
+            table, self.pgcli.pgexecute))
         query = f"select {q_cols} nama from {
             table} where parent_id = {parent_id}"
-        self.find_useful_columns(table, self.pgexecute)
-        on_error_resume = self.on_error == "RESUME"
-        return self.pgexecute.run(
+        self.find_useful_columns(table, self.pgcli.pgexecute)
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
             query,
-            self.pgspecial,
+            self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
-            explain_mode=self.explain_mode,
+            explain_mode=self.pgcli.explain_mode,
         )
 
     def drill_up(self, pattern, **_):
@@ -68,7 +66,7 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
         [table, row_id, *args] = re.split(r'\s+', pattern)
         table, row_id = pattern.split()
-        cols = self.find_useful_columns(table, self.pgexecute)
+        cols = self.find_useful_columns(table, self.pgcli.pgexecute)
         q_cols = ', '.join(cols)
         qc_cols = ', '.join([f'c.{x}' for x in cols])
         query = f"""
@@ -80,12 +78,12 @@ class ReedCommands:
         )
         select {q_cols} from cte {' '.join(args)} order by depth desc
         """
-        on_error_resume = self.on_error == "RESUME"
-        return self.pgexecute.run(
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
             query,
-            self.pgspecial,
+            self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
-            explain_mode=self.explain_mode,
+            explain_mode=self.pgcli.explain_mode,
         )
 
     def drill_down_kode(self, pattern, **_):
@@ -117,12 +115,12 @@ class ReedCommands:
         select kode_full, {', '.join(cols)} from t
         order by depth, id
         '''
-        on_error_resume = self.on_error == "RESUME"
-        return self.pgexecute.run(
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
             query,
-            self.pgspecial,
+            self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
-            explain_mode=self.explain_mode,
+            explain_mode=self.pgcli.explain_mode,
         )
 
     def print_tree(self, pattern, **_):
@@ -157,18 +155,18 @@ class ReedCommands:
         group by depth, level
         order by min(level_full)
         """
-        on_error_resume = self.on_error == "RESUME"
-        return self.pgexecute.run(
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
             query,
-            self.pgspecial,
+            self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
-            explain_mode=self.explain_mode,
+            explain_mode=self.pgcli.explain_mode,
         )
 
     def find_useful_columns(self, table_name: str):
         useful_cols = ['id', 'parent_id', 'level',
                        'kode', 'code', 'nama', 'name']
-        res = self.pgexecute.run(
+        res = self.pgcli.pgexecute.run(
             f"select column_name from information_schema.columns where table_name = '{table_name}'")
         for _, cur, *_ in res:
             rows = cur.fetchall()

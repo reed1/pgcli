@@ -1,4 +1,3 @@
-from .reedcommands import ReedCommands
 from collections import namedtuple
 from psycopg.conninfo import make_conninfo, conninfo_to_dict
 from psycopg import OperationalError, InterfaceError
@@ -73,6 +72,7 @@ from .packages.prompt_utils import confirm, confirm_destructive_query
 from .packages.parseutils import is_destructive
 from .packages.parseutils import parse_destructive_warning
 from .__init__ import __version__
+from .reedcommands import ReedCommands
 
 click.disable_unicode_literals_warning = True
 
@@ -291,12 +291,7 @@ class PGCli:
         self.completer = completer
         self._completer_lock = threading.Lock()
         self.register_special_commands()
-        (ReedCommands(
-            pgspecial=self.pgspecial,
-            pgexecute=self.pgexecute,
-            on_error=self.on_error,
-            explain_mode=self.explain_mode,
-        )).register_special_commands()
+        (ReedCommands(self)).register_special_commands()
 
         self.prompt_app = None
 
