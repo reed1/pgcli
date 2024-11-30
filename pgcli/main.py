@@ -1,3 +1,9 @@
+from .reedcommands import ReedCommands
+from collections import namedtuple
+from psycopg.conninfo import make_conninfo, conninfo_to_dict
+from psycopg import OperationalError, InterfaceError
+from getpass import getuser
+from urllib.parse import urlparse
 from configobj import ConfigObj, ParseError
 from pgspecial.namedqueries import NamedQueries
 from .config import skip_initial_comment
@@ -70,16 +76,6 @@ from .__init__ import __version__
 
 click.disable_unicode_literals_warning = True
 
-from urllib.parse import urlparse
-
-from getpass import getuser
-
-from psycopg import OperationalError, InterfaceError
-from psycopg.conninfo import make_conninfo, conninfo_to_dict
-
-from collections import namedtuple
-
-from .reedcommands import register as register_reedcommands
 
 try:
     import sshtunnel
@@ -201,7 +197,8 @@ class PGCli:
         self.multi_line = c["main"].as_bool("multi_line")
         self.multiline_mode = c["main"].get("multi_line_mode", "psql")
         self.vi_mode = c["main"].as_bool("vi")
-        self.auto_expand = auto_vertical_output or c["main"].as_bool("auto_expand")
+        self.auto_expand = auto_vertical_output or c["main"].as_bool(
+            "auto_expand")
         self.auto_retry_closed_connection = c["main"].as_bool(
             "auto_retry_closed_connection"
         )
@@ -215,7 +212,8 @@ class PGCli:
         # if not specified, set to DEFAULT_MAX_FIELD_WIDTH
         # if specified but empty, set to None to disable truncation
         # ellipsis will take at least 3 symbols, so this can't be less than 3 if specified and > 0
-        max_field_width = c["main"].get("max_field_width", DEFAULT_MAX_FIELD_WIDTH)
+        max_field_width = c["main"].get(
+            "max_field_width", DEFAULT_MAX_FIELD_WIDTH)
         if max_field_width and max_field_width.lower() != "none":
             max_field_width = max(3, abs(int(max_field_width)))
         else:
@@ -238,7 +236,8 @@ class PGCli:
             "destructive_statements_require_transaction"
         )
 
-        self.less_chatty = bool(less_chatty) or c["main"].as_bool("less_chatty")
+        self.less_chatty = bool(
+            less_chatty) or c["main"].as_bool("less_chatty")
         self.null_string = c["main"].get("null_string", "<null>")
         self.prompt_format = (
             prompt
@@ -249,14 +248,16 @@ class PGCli:
         self.on_error = c["main"]["on_error"].upper()
         self.decimal_format = c["data_formats"]["decimal"]
         self.float_format = c["data_formats"]["float"]
-        auth.keyring_initialize(c["main"].as_bool("keyring"), logger=self.logger)
+        auth.keyring_initialize(c["main"].as_bool(
+            "keyring"), logger=self.logger)
         self.show_bottom_toolbar = c["main"].as_bool("show_bottom_toolbar")
 
         self.pgspecial.pset_pager(
             self.config["main"].as_bool("enable_pager") and "on" or "off"
         )
 
-        self.style_output = style_factory_output(self.syntax_style, c["colors"])
+        self.style_output = style_factory_output(
+            self.syntax_style, c["colors"])
 
         self.now = dt.datetime.today()
 
@@ -290,7 +291,12 @@ class PGCli:
         self.completer = completer
         self._completer_lock = threading.Lock()
         self.register_special_commands()
-        register_reedcommands(self)
+        (ReedCommands(
+            pgspecial=self.pgspecial,
+            pgexecute=self.pgexecute,
+            on_error=self.on_error,
+            explain_mode=self.explain_mode,
+        )).register_special_commands()
 
         self.prompt_app = None
 
@@ -299,7 +305,8 @@ class PGCli:
         self.ssh_tunnel = None
 
         # formatter setup
-        self.formatter = TabularOutputFormatter(format_name=c["main"]["table_format"])
+        self.formatter = TabularOutputFormatter(
+            format_name=c["main"]["table_format"])
         register_new_formatter(self.formatter)
 
     def quit(self):
@@ -314,7 +321,7 @@ class PGCli:
             aliases=("use", "\\connect", "USE"),
         )
 
-        refresh_callback = lambda: self.refresh_completions(persist_priorities="all")
+        def refresh_callback(): return self.refresh_completions(persist_priorities="all")
 
         self.pgspecial.register(
             self.quit,
@@ -661,7 +668,8 @@ class PGCli:
         # prompt for a password (no -w flag), prompt for a passwd and try again.
         try:
             try:
-                pgexecute = PGExecute(database, user, passwd, host, port, dsn, **kwargs)
+                pgexecute = PGExecute(
+                    database, user, passwd, host, port, dsn, **kwargs)
             except (OperationalError, InterfaceError) as e:
                 if should_ask_for_password(e):
                     passwd = click.prompt(
@@ -754,7 +762,8 @@ class PGCli:
             if self.destructive_warning_restarts_connection:
                 # Restart connection to the database
                 self.pgexecute.connect()
-                logger.debug("cancelled query and restarted connection, sql: %r", text)
+                logger.debug(
+                    "cancelled query and restarted connection, sql: %r", text)
                 click.secho(
                     "cancelled query and restarted connection", err=True, fg="red"
                 )
@@ -800,9 +809,11 @@ class PGCli:
                         "Time: %0.03fs (%s), executed in: %0.03fs (%s)"
                         % (
                             query.total_time,
-                            pendulum.Duration(seconds=query.total_time).in_words(),
+                            pendulum.Duration(
+                                seconds=query.total_time).in_words(),
                             query.execution_time,
-                            pendulum.Duration(seconds=query.execution_time).in_words(),
+                            pendulum.Duration(
+                                seconds=query.execution_time).in_words(),
                         )
                     )
                 else:
@@ -819,7 +830,8 @@ class PGCli:
             elif query.path_changed:
                 logger.debug("Refreshing search path")
                 with self._completer_lock:
-                    self.completer.set_search_path(self.pgexecute.search_path())
+                    self.completer.set_search_path(
+                        self.pgexecute.search_path())
                 logger.debug("Search path: %r", self.completer.search_path)
         return query
 
@@ -922,7 +934,8 @@ class PGCli:
             while self.watch_command:
                 try:
                     query = self.execute_command(self.watch_command)
-                    click.echo(f"Waiting for {timing} seconds before repeating")
+                    click.echo(f"Waiting for {
+                               timing} seconds before repeating")
                     sleep(timing)
                 except KeyboardInterrupt:
                     self.watch_command = None
@@ -975,7 +988,8 @@ class PGCli:
                 input_processors=[
                     # Highlight matching brackets while editing.
                     ConditionalProcessor(
-                        processor=HighlightMatchingBracketProcessor(chars="[](){}"),
+                        processor=HighlightMatchingBracketProcessor(
+                            chars="[](){}"),
                         filter=HasFocus(DEFAULT_BUFFER) & ~IsDone(),
                     ),
                     # Render \t as 4 spaces instead of "^I"
@@ -989,7 +1003,8 @@ class PGCli:
                 # controls layout/display of the prompt/buffer
                 multiline=True,
                 history=history,
-                completer=ThreadedCompleter(DynamicCompleter(lambda: self.completer)),
+                completer=ThreadedCompleter(
+                    DynamicCompleter(lambda: self.completer)),
                 complete_while_typing=True,
                 style=style_factory(self.syntax_style, self.cli_style),
                 include_default_pygments_style=False,
@@ -1221,7 +1236,8 @@ class PGCli:
             str(self.pgexecute.port) if self.pgexecute.port is not None else "5432",
         )
         string = string.replace("\\i", str(self.pgexecute.pid) or "(none)")
-        string = string.replace("\\#", "#" if self.pgexecute.superuser else ">")
+        string = string.replace(
+            "\\#", "#" if self.pgexecute.superuser else ">")
         string = string.replace("\\n", "\n")
         return string
 
@@ -1260,7 +1276,7 @@ class PGCli:
                 click.echo(text, color=color)
         else:
             skip_rvisidata = query and (
-                not query.successful or query.meta_changed \
+                not query.successful or query.meta_changed
                 or query.db_changed or query.path_changed or query.mutated
             )
             os.environ['RVISIDATA_SKIP'] = '1' if skip_rvisidata else '0'
@@ -1713,7 +1729,8 @@ def parse_service_info(service):
         if platform.system() == "Windows":
             service_file = os.getenv("PGSYSCONFDIR") + "\\pg_service.conf"
         elif os.getenv("PGSYSCONFDIR"):
-            service_file = os.path.join(os.getenv("PGSYSCONFDIR"), ".pg_service.conf")
+            service_file = os.path.join(
+                os.getenv("PGSYSCONFDIR"), ".pg_service.conf")
         else:
             service_file = os.path.expanduser("~/.pg_service.conf")
     if not service or not os.path.exists(service_file):

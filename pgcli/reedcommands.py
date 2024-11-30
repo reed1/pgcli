@@ -1,22 +1,15 @@
 import re
-from pgcli.main import PGCli
+from dataclasses import dataclass
 from pgcli.pgexecute import PGExecute
+from pgspecial.main import PGSpecial
 
 
-def register(pgcli: PGCli) -> None:
-    (ReedCommands(pgcli)).register_special_commands()
-
-
+@dataclass
 class ReedCommands:
-    pgcli: PGCli
-
-    def __init__(self, pgcli: PGCli):
-        self.pgcli = pgcli
-        self.pgspecial = pgcli.pgspecial
-        self.pgexecute = pgcli.pgexecute
-        self.on_error = pgcli.on_error
-        self.explain_mode = pgcli.explain_mode
-        self.register_special_commands()
+    pgspecial: PGSpecial
+    pgexecute: PGExecute
+    on_error: str = "RESUME"
+    explain_mode: str = "OFF"
 
     def register_special_commands(self) -> None:
         self.pgspecial.register(
