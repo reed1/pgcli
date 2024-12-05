@@ -48,11 +48,9 @@ class ReedCommands:
             raise ValueError(
                 "Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
-        q_cols = ', '.join(self.find_useful_columns(
-            table, self.pgcli.pgexecute))
+        q_cols = ', '.join(self.find_useful_columns(table))
         query = f"select {q_cols} nama from {
             table} where parent_id = {parent_id}"
-        self.find_useful_columns(table, self.pgcli.pgexecute)
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
@@ -66,7 +64,7 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
         [table, row_id, *args] = re.split(r'\s+', pattern)
         table, row_id = pattern.split()
-        cols = self.find_useful_columns(table, self.pgcli.pgexecute)
+        cols = self.find_useful_columns(table)
         q_cols = ', '.join(cols)
         qc_cols = ', '.join([f'c.{x}' for x in cols])
         query = f"""
