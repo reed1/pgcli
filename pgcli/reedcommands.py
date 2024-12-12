@@ -24,6 +24,9 @@ class ReedCommands:
         self.pgcli.pgspecial.register(
             self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table."
         )
+        self.pgcli.pgspecial.register(
+            self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
+        )
 
     def drill_one(self, pattern, **_):
         if not re.match(r"^\w+( \d+)?$", pattern):
@@ -152,6 +155,31 @@ class ReedCommands:
         from cte
         group by depth, level
         order by min(level_full)
+        """
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
+    def get_columns(self, pattern, **_):
+        if not re.match(r"^[\w.]+$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \gcol table")
+        q_where_schema = '(1=1)'
+        table = pattern.strip()
+        if '.' in table:
+            schema, table = table.split('.')
+            q_where_schema = f"table_schema = '{schema}'"
+
+        query = f"""
+        select
+            column_name as column,
+            data_type as type
+        from information_schema.columns
+        where table_name = '{table}' and {q_where_schema}
+        order by ordinal_position
         """
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
