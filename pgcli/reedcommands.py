@@ -27,6 +27,9 @@ class ReedCommands:
         self.pgcli.pgspecial.register(
             self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
         )
+        self.pgcli.pgspecial.register(
+            self.get_column_distinct, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
+        )
 
     def drill_one(self, pattern, **_):
         if not re.match(r"^\w+( \d+)?$", pattern):
@@ -181,6 +184,20 @@ class ReedCommands:
         where table_name = '{table}' and {q_where_schema}
         order by ordinal_position
         """
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
+    def get_discint_count(self, pattern, **_):
+        if not re.match(r"^\w+(\s+\w+)+$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \dc table col1 col2..")
+        [table, *columns] = re.split(r'\s+', pattern)
+        cols = ', '.join(columns)
+        query = f"select {cols}, count(*) as cnt from {table} group by {cols} order by {cols}"
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
