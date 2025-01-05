@@ -193,11 +193,11 @@ class ReedCommands:
         )
 
     def get_discint_count(self, pattern, **_):
-        if not re.match(r"^\w+(\s+\w+)+$", pattern):
-            raise ValueError(r"Invalid pattern. Should be \dc table col1 col2..")
+        if not re.match(r"^\w+(\s+\"?\w+\"?)+$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \dc table [columns]..")
         [table, *columns] = re.split(r'\s+', pattern)
         cols = ', '.join(columns)
-        query = f"select {cols}, count(*) as cnt from {table} group by {cols} order by {cols}"
+        query = f'select {cols}, count(*) as cnt from {table} group by {cols} order by {cols}'
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
