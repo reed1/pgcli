@@ -28,7 +28,7 @@ class ReedCommands:
             self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
         )
         self.pgcli.pgspecial.register(
-            self.get_column_distinct, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
+            self.get_discint_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
         )
 
     def drill_one(self, pattern, **_):
