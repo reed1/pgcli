@@ -28,7 +28,7 @@ class ReedCommands:
             self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
         )
         self.pgcli.pgspecial.register(
-            self.get_discint_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
+            self.get_distinct_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
         )
 
     def drill_one(self, pattern, **_):
@@ -192,7 +192,7 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
-    def get_discint_count(self, pattern, **_):
+    def get_distinct_count(self, pattern, **_):
         if not re.match(r"^\w+(\s+\"?\w+\"?)+$", pattern):
             raise ValueError(r"Invalid pattern. Should be \dc table [columns]..")
         [table, *columns] = re.split(r'\s+', pattern)
