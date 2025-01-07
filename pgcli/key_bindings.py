@@ -8,6 +8,7 @@ from prompt_toolkit.filters import (
     has_selection,
     vi_mode,
 )
+from .reed_key_bindings import add_custom_key_bindings
 
 from .pgbuffer import buffer_should_be_handled, safe_multi_line_mode
 
@@ -130,12 +131,6 @@ def pgcli_bindings(pgcli):
         """Move down in history."""
         event.current_buffer.history_forward(count=event.arg)
 
-    @kb.add("c-e")
-    def _(event):
-        """Edit the current input in external editor."""
-        _logger.debug("Detected <C-e> key.")
-        buff = event.app.current_buffer
-        buff.insert_text("\\e")
-        buff.validate_and_handle()
+    add_custom_key_bindings(kb, pgcli)
 
     return kb

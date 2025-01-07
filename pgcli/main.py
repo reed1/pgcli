@@ -72,7 +72,7 @@ from .packages.prompt_utils import confirm, confirm_destructive_query
 from .packages.parseutils import is_destructive
 from .packages.parseutils import parse_destructive_warning
 from .__init__ import __version__
-from .reedcommands import ReedCommands
+from .reed_commands import ReedCommands
 
 click.disable_unicode_literals_warning = True
 
