@@ -1,7 +1,4 @@
 import re
-import subprocess
-from pgcli.pgexecute import PGExecute
-from pgspecial.main import PGSpecial
 
 
 class ReedCommands:
@@ -30,9 +27,6 @@ class ReedCommands:
         )
         self.pgcli.pgspecial.register(
             self.get_distinct_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
-        )
-        self.pgcli.pgspecial.register(
-            self.select_schema, "\\ss", "\\ss", "Select and set schema."
         )
 
     def drill_one(self, pattern, **_):
@@ -210,35 +204,6 @@ class ReedCommands:
             self.pgcli.pgspecial,
             on_error_resume=on_error_resume,
             explain_mode=self.pgcli.explain_mode,
-        )
-
-    def select_schema(self, pattern, **_):
-        schema_arg = pattern.strip()
-        if schema_arg == '':
-            query = "SELECT schema_name FROM information_schema.schemata"
-            result = self.pgcli.pgexecute.run(query)
-            schemas = [row[0]
-                       for _, cur, *_ in result for row in cur.fetchall()]
-            filtereds = sorted([e for e in schemas
-                                if not e.startswith('pg_') and e != 'information_schema'])
-            schema = subprocess.run(
-                ['rofi', '-dmenu', '-p', 'Select schema:'],
-                input='\n'.join(filtereds),
-                text=True,
-                capture_output=True
-            ).stdout.strip()
-        else:
-            schema = schema_arg
-        if schema:
-            self.pgcli.pgexecute.run(
-                f"SET search_path TO '{schema}'",
-            )
-            print(f"Search path set to {schema}")
-        yield (
-            None,
-            None,
-            None,
-            None,
         )
 
     def find_useful_columns(self, table_name: str):
