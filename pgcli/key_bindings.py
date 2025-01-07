@@ -130,4 +130,12 @@ def pgcli_bindings(pgcli):
         """Move down in history."""
         event.current_buffer.history_forward(count=event.arg)
 
+    @kb.add("c-e")
+    def _(event):
+        """Edit the current input in external editor."""
+        _logger.debug("Detected <C-e> key.")
+        buff = event.app.current_buffer
+        buff.insert_text("\\e")
+        buff.validate_and_handle()
+
     return kb
