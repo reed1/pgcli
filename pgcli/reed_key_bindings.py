@@ -28,7 +28,7 @@ def add_custom_key_bindings(kb, pgcli):
         ])
         sorteds = custom_sort_schemas(filtereds)
         schema = subprocess.run(
-            ['rofi', '-dmenu', '-p', 'Select schema:'],
+            ['rofi', '-dmenu', '-p', 'Select schema'],
             input='\n'.join(sorteds),
             text=True,
             capture_output=True
