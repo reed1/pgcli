@@ -1234,7 +1234,7 @@ class PGCli:
         string = string.replace(
             "\\#", "#" if self.pgexecute.superuser else ">")
         if "\\s" in string:
-            search_path = self.pgexecute.search_path() or ["public"]
+            search_path = self.completer.search_path or ["public"]
             label = ",".join(e for e in search_path if e != "pg_catalog")
             string = string.replace("\\s", label)
         string = string.replace("\\n", "\n")
