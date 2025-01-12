@@ -1233,6 +1233,10 @@ class PGCli:
         string = string.replace("\\i", str(self.pgexecute.pid) or "(none)")
         string = string.replace(
             "\\#", "#" if self.pgexecute.superuser else ">")
+        if "\\s" in string:
+            search_path = self.pgexecute.search_path() or ["public"]
+            label = ",".join(e for e in search_path if e != "pg_catalog")
+            string = string.replace("\\s", label)
         string = string.replace("\\n", "\n")
         return string
 
@@ -1390,6 +1394,12 @@ class PGCli:
     default=None,
     help="Open an SSH tunnel to the given address and connect to the database from it.",
 )
+@click.option(
+    "-s",
+    "--search-path",
+    default=None,
+    help="Set initial search path (comma-separated list of schemas).",
+)
 @click.argument("dbname", default=lambda: None, envvar="PGDATABASE", nargs=1)
 @click.argument("username", default=lambda: None, envvar="PGUSER", nargs=1)
 def cli(
@@ -1414,6 +1424,7 @@ def cli(
     list_dsn,
     warn,
     ssh_tunnel: str,
+    search_path: str,
 ):
     if version:
         print("Version:", __version__)
@@ -1519,6 +1530,12 @@ def cli(
     else:
         pgcli.connect(database, host, user, port)
 
+    if search_path:
+        # Set initial search path after connecting
+        schemas = [s.strip() for s in search_path.split(",")]
+        search_path_sql = f"SET search_path TO {','.join(schemas)};"
+        pgcli.execute_command(search_path_sql)
+
     if list_databases:
         cur, headers, status = pgcli.pgexecute.full_databases()
 
@@ -1530,11 +1547,17 @@ def cli(
         sys.exit(0)
 
     pgcli.logger.debug(
-        "Launch Params: \n" "\tdatabase: %r" "\tuser: %r" "\thost: %r" "\tport: %r",
+        "Launch Params: \n"
+        "\tdatabase: %r"
+        "\tuser: %r"
+        "\thost: %r"
+        "\tport: %r"
+        "\tsearch_path: %r",
         database,
         user,
         host,
         port,
+        search_path,
     )
 
     if setproctitle:
