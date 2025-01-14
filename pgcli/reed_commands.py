@@ -2,6 +2,7 @@ import re
 
 
 class ReedCommands:
+    TABLE_PATTERN = r'[\w_."]+'
 
     def __init__(self, pgcli):
         self.pgcli = pgcli
@@ -30,7 +31,7 @@ class ReedCommands:
         )
 
     def drill_one(self, pattern, **_):
-        if not re.match(r"^\w+( \d+)?$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN}( \d+)?$", pattern):
             raise ValueError(
                 r"Invalid pattern. Should be \do table [id]")
         [table, *args] = re.split(r'\s+', pattern)
@@ -48,7 +49,7 @@ class ReedCommands:
         )
 
     def drill_down(self, pattern, **_):
-        if not re.match(r"^\w+ \d+$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN} \d+$", pattern):
             raise ValueError(
                 "Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
@@ -64,7 +65,7 @@ class ReedCommands:
         )
 
     def drill_up(self, pattern, **_):
-        if not re.match(r"^\w+ \d+( where .*)?$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
         [table, row_id, *args] = re.split(r'\s+', pattern)
         table, row_id = pattern.split()
@@ -89,7 +90,7 @@ class ReedCommands:
         )
 
     def drill_down_kode(self, pattern, **_):
-        if not re.match(r"^\w+ [\w.]+$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN} [\w.]+$", pattern):
             raise ValueError(r"Invalid pattern. Should be \dk table kode")
         [table, kode] = re.split(r'\s+', pattern)
         cols = self.find_useful_columns(table)
@@ -166,7 +167,7 @@ class ReedCommands:
         )
 
     def get_columns(self, pattern, **_):
-        if not re.match(r"^[\w.]+$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
             raise ValueError(r"Invalid pattern. Should be \gcol table")
         q_where_schema = '(1=1)'
         table = pattern.strip()
@@ -191,7 +192,7 @@ class ReedCommands:
         )
 
     def get_distinct_count(self, pattern, **_):
-        if not re.match(r"^\w+(\s+\"?\w+\"?)+$", pattern):
+        if not re.match(rf"^{self.TABLE_PATTERN}(\s+{self.TABLE_PATTERN})+$", pattern):
             raise ValueError(
                 r"Invalid pattern. Should be \dc table [columns]..")
         [table, *columns] = re.split(r'\s+', pattern)
