@@ -9,6 +9,7 @@ import psycopg.sql
 from psycopg.conninfo import make_conninfo
 import sqlparse
 
+from pgcli import connection_keepalive
 from .packages.parseutils.meta import FunctionMetadata, ForeignKey
 
 _logger = logging.getLogger(__name__)
@@ -232,6 +233,8 @@ class PGExecute:
             self.conn.close()
         self.conn = conn
         self.conn.autocommit = True
+
+        connection_keepalive.keepalive(self)
 
         if self.notify_callback is not None:
             self.conn.add_notify_handler(self.notify_callback)
