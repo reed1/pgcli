@@ -13,9 +13,7 @@ from .packages.parseutils.meta import FunctionMetadata, ForeignKey
 
 _logger = logging.getLogger(__name__)
 
-ViewDef = namedtuple(
-    "ViewDef", "nspname relname relkind viewdef reloptions checkoption"
-)
+ViewDef = namedtuple("ViewDef", "nspname relname relkind viewdef reloptions checkoption")
 
 
 # we added this funcion to strip beginning comments
@@ -51,9 +49,7 @@ def register_typecasters(connection):
         "json",
         "jsonb",
     ]:
-        connection.adapters.register_loader(
-            forced_text_type, psycopg.types.string.TextLoader
-        )
+        connection.adapters.register_loader(forced_text_type, psycopg.types.string.TextLoader)
 
 
 # pg3: I don't know what is this
@@ -167,6 +163,7 @@ class PGExecute:
         host=None,
         port=None,
         dsn=None,
+        notify_callback=None,
         **kwargs,
     ):
         self._conn_params = {}
@@ -179,6 +176,7 @@ class PGExecute:
         self.port = None
         self.server_version = None
         self.extra_args = None
+        self.notify_callback = notify_callback
         self.connect(database, user, password, host, port, dsn, **kwargs)
         self.reset_expanded = None
 
@@ -217,9 +215,7 @@ class PGExecute:
             new_params = {"dsn": new_params["dsn"], "password": new_params["password"]}
 
             if new_params["password"]:
-                new_params["dsn"] = make_conninfo(
-                    new_params["dsn"], password=new_params.pop("password")
-                )
+                new_params["dsn"] = make_conninfo(new_params["dsn"], password=new_params.pop("password"))
 
         conn_params.update({k: v for k, v in new_params.items() if v})
 
@@ -236,6 +232,9 @@ class PGExecute:
             self.conn.close()
         self.conn = conn
         self.conn.autocommit = True
+
+        if self.notify_callback is not None:
+            self.conn.add_notify_handler(self.notify_callback)
 
         # When we connect using a DSN, we don't really know what db,
         # user, etc. we connected to. Let's read it.
@@ -257,11 +256,7 @@ class PGExecute:
         self.extra_args = kwargs
 
         if not self.host:
-            self.host = (
-                "pgbouncer"
-                if self.is_virtual_database()
-                else self.get_socket_directory()
-            )
+            self.host = "pgbouncer" if self.is_virtual_database() else self.get_socket_directory()
 
         self.pid = conn.info.backend_pid
         self.superuser = conn.info.parameter_status("is_superuser") in ("on", "1")
@@ -301,10 +296,7 @@ class PGExecute:
 
     def valid_transaction(self):
         status = self.conn.info.transaction_status
-        return (
-            status == psycopg.pq.TransactionStatus.ACTIVE
-            or status == psycopg.pq.TransactionStatus.INTRANS
-        )
+        return status == psycopg.pq.TransactionStatus.ACTIVE or status == psycopg.pq.TransactionStatus.INTRANS
 
     def run(
         self,
@@ -437,7 +429,11 @@ class PGExecute:
 
         def handle_notices(n):
             nonlocal title
-            title = f"{n.message_primary}\n{n.message_detail}\n{title}"
+            title = f"{title}"
+            if n.message_primary is not None:
+                title = f"{title}\n{n.message_primary}"
+            if n.message_detail is not None:
+                title = f"{title}\n{n.message_detail}"
 
         self.conn.add_notice_handler(handle_notices)
 
@@ -640,9 +636,7 @@ class PGExecute:
 
     def get_socket_directory(self):
         with self.conn.cursor() as cur:
-            _logger.debug(
-                "Socket directory Query. sql: %r", self.socket_directory_query
-            )
+            _logger.debug("Socket directory Query. sql: %r", self.socket_directory_query)
             cur.execute(self.socket_directory_query)
             result = cur.fetchone()
             return result[0] if result else ""
@@ -872,3 +866,14 @@ class PGExecute:
 
     def explain_prefix(self):
         return "EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) "
+
+    def get_timezone(self) -> str:
+        query = psycopg.sql.SQL("show time zone")
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchone()[0]
+
+    def set_timezone(self, timezone: str):
+        query = psycopg.sql.SQL("set time zone {}").format(psycopg.sql.Identifier(timezone))
+        with self.conn.cursor() as cur:
+            cur.execute(query)

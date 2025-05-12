@@ -1,8 +1,4 @@
-from collections import namedtuple
-from psycopg.conninfo import make_conninfo, conninfo_to_dict
-from psycopg import OperationalError, InterfaceError
-from getpass import getuser
-from urllib.parse import urlparse
+from zoneinfo import ZoneInfoNotFoundError
 from configobj import ConfigObj, ParseError
 from pgspecial.namedqueries import NamedQueries
 from .config import skip_initial_comment
@@ -16,18 +12,23 @@ import logging
 import threading
 import shutil
 import functools
-import pendulum
 import datetime as dt
 import itertools
+import pathlib
 import platform
 from time import time, sleep
 from typing import Optional
 
 from cli_helpers.tabular_output import TabularOutputFormatter
-from cli_helpers.tabular_output.preprocessors import align_decimals, format_numbers
+from cli_helpers.tabular_output.preprocessors import (
+    align_decimals,
+    format_numbers,
+    format_timestamps,
+)
 from cli_helpers.utils import strip_ansi
 from .explain_output_formatter import ExplainOutputFormatter
 import click
+import tzlocal
 
 try:
     import setproctitle
@@ -76,6 +77,15 @@ from .reed_commands import ReedCommands
 
 click.disable_unicode_literals_warning = True
 
+from urllib.parse import urlparse
+
+from getpass import getuser
+
+from psycopg import OperationalError, InterfaceError, Notify
+from psycopg.conninfo import make_conninfo, conninfo_to_dict
+from psycopg.errors import Diagnostic
+
+from collections import namedtuple
 
 try:
     import sshtunnel
@@ -108,9 +118,10 @@ MetaQuery.__new__.__defaults__ = ("", False, 0, 0, False, False, False, False)
 
 OutputSettings = namedtuple(
     "OutputSettings",
-    "table_format dcmlfmt floatfmt missingval expanded max_width case_function style_output max_field_width",
+    "table_format dcmlfmt floatfmt column_date_formats missingval expanded max_width case_function style_output max_field_width",
 )
 OutputSettings.__new__.__defaults__ = (
+    None,
     None,
     None,
     None,
@@ -127,6 +138,13 @@ class PgCliQuitError(Exception):
     pass
 
 
+def notify_callback(notify: Notify):
+    click.secho(
+        'Notification received on channel "{}" (PID {}):\n{}'.format(notify.channel, notify.pid, notify.payload),
+        fg="green",
+    )
+
+
 class PGCli:
     default_prompt = "\\u@\\h:\\d> "
     max_len_prompt = 30
@@ -136,9 +154,7 @@ class PGCli:
         os_environ_pager = os.environ.get("PAGER")
 
         if configured_pager:
-            self.logger.info(
-                'Default pager found in config file: "%s"', configured_pager
-            )
+            self.logger.info('Default pager found in config file: "%s"', configured_pager)
             os.environ["PAGER"] = configured_pager
         elif os_environ_pager:
             self.logger.info(
@@ -147,9 +163,7 @@ class PGCli:
             )
             os.environ["PAGER"] = os_environ_pager
         else:
-            self.logger.info(
-                "No default pager found in environment. Using os default pager"
-            )
+            self.logger.info("No default pager found in environment. Using os default pager")
 
         # Set default set of less recommended options, if they are not already set.
         # They are ignored if pager is different than less.
@@ -163,6 +177,7 @@ class PGCli:
         pgexecute=None,
         pgclirc_file=None,
         row_limit=None,
+        application_name="pgcli",
         single_connection=False,
         less_chatty=None,
         prompt=None,
@@ -170,6 +185,7 @@ class PGCli:
         auto_vertical_output=False,
         warn=None,
         ssh_tunnel_url: Optional[str] = None,
+        log_file: Optional[str] = None,
     ):
         self.force_passwd_prompt = force_passwd_prompt
         self.never_passwd_prompt = never_passwd_prompt
@@ -197,11 +213,8 @@ class PGCli:
         self.multi_line = c["main"].as_bool("multi_line")
         self.multiline_mode = c["main"].get("multi_line_mode", "psql")
         self.vi_mode = c["main"].as_bool("vi")
-        self.auto_expand = auto_vertical_output or c["main"].as_bool(
-            "auto_expand")
-        self.auto_retry_closed_connection = c["main"].as_bool(
-            "auto_retry_closed_connection"
-        )
+        self.auto_expand = auto_vertical_output or c["main"].as_bool("auto_expand")
+        self.auto_retry_closed_connection = c["main"].as_bool("auto_retry_closed_connection")
         self.expanded_output = c["main"].as_bool("expand")
         self.pgspecial.timing_enabled = c["main"].as_bool("timing")
         if row_limit is not None:
@@ -209,11 +222,12 @@ class PGCli:
         else:
             self.row_limit = c["main"].as_int("row_limit")
 
+        self.application_name = application_name
+
         # if not specified, set to DEFAULT_MAX_FIELD_WIDTH
         # if specified but empty, set to None to disable truncation
         # ellipsis will take at least 3 symbols, so this can't be less than 3 if specified and > 0
-        max_field_width = c["main"].get(
-            "max_field_width", DEFAULT_MAX_FIELD_WIDTH)
+        max_field_width = c["main"].get("max_field_width", DEFAULT_MAX_FIELD_WIDTH)
         if max_field_width and max_field_width.lower() != "none":
             max_field_width = max(3, abs(int(max_field_width)))
         else:
@@ -226,38 +240,25 @@ class PGCli:
         self.syntax_style = c["main"]["syntax_style"]
         self.cli_style = c["colors"]
         self.wider_completion_menu = c["main"].as_bool("wider_completion_menu")
-        self.destructive_warning = parse_destructive_warning(
-            warn or c["main"].as_list("destructive_warning")
-        )
-        self.destructive_warning_restarts_connection = c["main"].as_bool(
-            "destructive_warning_restarts_connection"
-        )
-        self.destructive_statements_require_transaction = c["main"].as_bool(
-            "destructive_statements_require_transaction"
-        )
+        self.destructive_warning = parse_destructive_warning(warn or c["main"].as_list("destructive_warning"))
+        self.destructive_warning_restarts_connection = c["main"].as_bool("destructive_warning_restarts_connection")
+        self.destructive_statements_require_transaction = c["main"].as_bool("destructive_statements_require_transaction")
 
-        self.less_chatty = bool(
-            less_chatty) or c["main"].as_bool("less_chatty")
+        self.less_chatty = bool(less_chatty) or c["main"].as_bool("less_chatty")
+        self.verbose_errors = "verbose_errors" in c["main"] and c["main"].as_bool("verbose_errors")
         self.null_string = c["main"].get("null_string", "<null>")
-        self.prompt_format = (
-            prompt
-            if prompt is not None
-            else c["main"].get("prompt", self.default_prompt)
-        )
+        self.prompt_format = prompt if prompt is not None else c["main"].get("prompt", self.default_prompt)
         self.prompt_dsn_format = prompt_dsn
         self.on_error = c["main"]["on_error"].upper()
         self.decimal_format = c["data_formats"]["decimal"]
         self.float_format = c["data_formats"]["float"]
-        auth.keyring_initialize(c["main"].as_bool(
-            "keyring"), logger=self.logger)
+        self.column_date_formats = c["column_date_formats"]
+        auth.keyring_initialize(c["main"].as_bool("keyring"), logger=self.logger)
         self.show_bottom_toolbar = c["main"].as_bool("show_bottom_toolbar")
 
-        self.pgspecial.pset_pager(
-            self.config["main"].as_bool("enable_pager") and "on" or "off"
-        )
+        self.pgspecial.pset_pager(self.config["main"].as_bool("enable_pager") and "on" or "off")
 
-        self.style_output = style_factory_output(
-            self.syntax_style, c["colors"])
+        self.style_output = style_factory_output(self.syntax_style, c["colors"])
 
         self.now = dt.datetime.today()
 
@@ -268,9 +269,7 @@ class PGCli:
         # Initialize completer
         smart_completion = c["main"].as_bool("smart_completion")
         keyword_casing = c["main"]["keyword_casing"]
-        single_connection = single_connection or c["main"].as_bool(
-            "always_use_single_connection"
-        )
+        single_connection = single_connection or c["main"].as_bool("always_use_single_connection")
         self.settings = {
             "casing_file": get_casing_file(c),
             "generate_casing_file": c["main"].as_bool("generate_casing_file"),
@@ -285,9 +284,7 @@ class PGCli:
             "alias_map_file": c["main"]["alias_map_file"] or None,
         }
 
-        completer = PGCompleter(
-            smart_completion, pgspecial=self.pgspecial, settings=self.settings
-        )
+        completer = PGCompleter(smart_completion, pgspecial=self.pgspecial, settings=self.settings)
         self.completer = completer
         self._completer_lock = threading.Lock()
         self.register_special_commands()
@@ -299,9 +296,13 @@ class PGCli:
         self.ssh_tunnel_url = ssh_tunnel_url
         self.ssh_tunnel = None
 
+        if log_file:
+            with open(log_file, "a+"):
+                pass  # ensure writeable
+        self.log_file = log_file
+
         # formatter setup
-        self.formatter = TabularOutputFormatter(
-            format_name=c["main"]["table_format"])
+        self.formatter = TabularOutputFormatter(format_name=c["main"]["table_format"])
         register_new_formatter(self.formatter)
 
     def quit(self):
@@ -316,7 +317,8 @@ class PGCli:
             aliases=("use", "\\connect", "USE"),
         )
 
-        def refresh_callback(): return self.refresh_completions(persist_priorities="all")
+        def refresh_callback():
+            return self.refresh_completions(persist_priorities="all")
 
         self.pgspecial.register(
             self.quit,
@@ -350,9 +352,7 @@ class PGCli:
             "Refresh auto-completions.",
             arg_type=NO_QUERY,
         )
-        self.pgspecial.register(
-            self.execute_from_file, "\\i", "\\i filename", "Execute commands from file."
-        )
+        self.pgspecial.register(self.execute_from_file, "\\i", "\\i filename", "Execute commands from file.")
         self.pgspecial.register(
             self.write_to_file,
             "\\o",
@@ -360,8 +360,12 @@ class PGCli:
             "Send all query results to file.",
         )
         self.pgspecial.register(
-            self.info_connection, "\\conninfo", "\\conninfo", "Get connection details"
+            self.write_to_logfile,
+            "\\log-file",
+            "\\log-file [filename]",
+            "Log all query results to a logfile, in addition to the normal output destination.",
         )
+        self.pgspecial.register(self.info_connection, "\\conninfo", "\\conninfo", "Get connection details")
         self.pgspecial.register(
             self.change_table_format,
             "\\T",
@@ -382,6 +386,26 @@ class PGCli:
             "\\qecho [string]",
             "Echo a string to the query output channel.",
         )
+
+        self.pgspecial.register(
+            self.toggle_verbose_errors,
+            "\\v",
+            "\\v [on|off]",
+            "Toggle verbose errors.",
+        )
+
+    def toggle_verbose_errors(self, pattern, **_):
+        flag = pattern.strip()
+
+        if flag == "on":
+            self.verbose_errors = True
+        elif flag == "off":
+            self.verbose_errors = False
+        else:
+            self.verbose_errors = not self.verbose_errors
+
+        message = "Verbose errors " + "on." if self.verbose_errors else "off."
+        return [(None, None, None, message)]
 
     def echo(self, pattern, **_):
         return [(None, None, None, pattern)]
@@ -410,8 +434,7 @@ class PGCli:
             None,
             None,
             'You are connected to database "%s" as user '
-            '"%s" on %s at port "%s".'
-            % (self.pgexecute.dbname, self.pgexecute.user, host, self.pgexecute.port),
+            '"%s" on %s at port "%s".' % (self.pgexecute.dbname, self.pgexecute.user, host, self.pgexecute.port),
         )
 
     def change_db(self, pattern, **_):
@@ -419,7 +442,7 @@ class PGCli:
             # Get all the parameters in pattern, handling double quotes if any.
             infos = re.findall(r'"[^"]*"|[^"\'\s]+', pattern)
             # Now removing quotes.
-            list(map(lambda s: s.strip('"'), infos))
+            [s.strip('"') for s in infos]
 
             infos.extend([None] * (4 - len(infos)))
             db, user, host, port = infos
@@ -441,8 +464,7 @@ class PGCli:
             None,
             None,
             None,
-            'You are now connected to database "%s" as '
-            'user "%s"' % (self.pgexecute.dbname, self.pgexecute.user),
+            'You are now connected to database "%s" as user "%s"' % (self.pgexecute.dbname, self.pgexecute.user),
         )
 
     def execute_from_file(self, pattern, **_):
@@ -463,9 +485,7 @@ class PGCli:
             ):
                 message = "Destructive statements must be run within a transaction. Command execution stopped."
                 return [(None, None, None, message)]
-            destroy = confirm_destructive_query(
-                query, self.destructive_warning, self.dsn_alias
-            )
+            destroy = confirm_destructive_query(query, self.destructive_warning, self.dsn_alias)
             if destroy is False:
                 message = "Wise choice. Command execution stopped."
                 return [(None, None, None, message)]
@@ -477,6 +497,26 @@ class PGCli:
             on_error_resume=on_error_resume,
             explain_mode=self.explain_mode,
         )
+
+    def write_to_logfile(self, pattern, **_):
+        if not pattern:
+            self.log_file = None
+            message = "Logfile capture disabled"
+            return [(None, None, None, message, "", True, True)]
+
+        log_file = pathlib.Path(pattern).expanduser().absolute()
+
+        try:
+            with open(log_file, "a+"):
+                pass  # ensure writeable
+        except OSError as e:
+            self.log_file = None
+            message = str(e) + "\nLogfile capture disabled"
+            return [(None, None, None, message, "", False, True)]
+
+        self.log_file = str(log_file)
+        message = 'Writing to file "%s"' % self.log_file
+        return [(None, None, None, message, "", True, True)]
 
     def write_to_file(self, pattern, **_):
         if not pattern:
@@ -520,10 +560,7 @@ class PGCli:
 
         log_level = level_map[log_level.upper()]
 
-        formatter = logging.Formatter(
-            "%(asctime)s (%(process)d/%(threadName)s) "
-            "%(name)s %(levelname)s - %(message)s"
-        )
+        formatter = logging.Formatter("%(asctime)s (%(process)d/%(threadName)s) %(name)s %(levelname)s - %(message)s")
 
         handler.setFormatter(formatter)
 
@@ -544,10 +581,8 @@ class PGCli:
     def connect_service(self, service, user):
         service_config, file = parse_service_info(service)
         if service_config is None:
-            click.secho(
-                f"service '{service}' was not found in {file}", err=True, fg="red"
-            )
-            exit(1)
+            click.secho(f"service '{service}' was not found in {file}", err=True, fg="red")
+            sys.exit(1)
         self.connect(
             database=service_config.get("dbname"),
             host=service_config.get("host"),
@@ -562,9 +597,7 @@ class PGCli:
         kwargs = {remap.get(k, k): v for k, v in kwargs.items()}
         self.connect(**kwargs)
 
-    def connect(
-        self, database="", host="", user="", port="", passwd="", dsn="", **kwargs
-    ):
+    def connect(self, database="", host="", user="", port="", passwd="", dsn="", **kwargs):
         # Connect to the database.
 
         if not user:
@@ -573,7 +606,7 @@ class PGCli:
         if not database:
             database = user
 
-        kwargs.setdefault("application_name", "pgcli")
+        kwargs.setdefault("application_name", self.application_name)
 
         # If password prompt is not forced but no password is provided, try
         # getting it from environment variable.
@@ -586,9 +619,7 @@ class PGCli:
         # If we successfully parsed a password from a URI, there's no need to
         # prompt for it, even with the -W flag
         if self.force_passwd_prompt and not passwd:
-            passwd = click.prompt(
-                "Password for %s" % user, hide_input=True, show_default=False, type=str
-            )
+            passwd = click.prompt("Password for %s" % user, hide_input=True, show_default=False, type=str)
 
         key = f"{user}@{host}"
 
@@ -647,7 +678,7 @@ class PGCli:
                 self.logger.handlers = logger_handlers
                 self.logger.error("traceback: %r", traceback.format_exc())
                 click.secho(str(e), err=True, fg="red")
-                exit(1)
+                sys.exit(1)
             self.logger.handlers = logger_handlers
 
             atexit.register(self.ssh_tunnel.stop)
@@ -664,7 +695,15 @@ class PGCli:
         try:
             try:
                 pgexecute = PGExecute(
-                    database, user, passwd, host, port, dsn, **kwargs)
+                    database,
+                    user,
+                    passwd,
+                    host,
+                    port,
+                    dsn,
+                    notify_callback,
+                    **kwargs,
+                )
             except (OperationalError, InterfaceError) as e:
                 if should_ask_for_password(e):
                     passwd = click.prompt(
@@ -674,7 +713,14 @@ class PGCli:
                         type=str,
                     )
                     pgexecute = PGExecute(
-                        database, user, passwd, host, port, dsn, **kwargs
+                        database,
+                        user,
+                        passwd,
+                        host,
+                        port,
+                        dsn,
+                        notify_callback,
+                        **kwargs,
                     )
                 else:
                     raise e
@@ -685,7 +731,7 @@ class PGCli:
             self.logger.debug("Database connection failed: %r.", e)
             self.logger.error("traceback: %r", traceback.format_exc())
             click.secho(str(e), err=True, fg="red")
-            exit(1)
+            sys.exit(1)
 
         self.pgexecute = pgexecute
 
@@ -739,13 +785,9 @@ class PGCli:
                     and not self.pgexecute.valid_transaction()
                     and is_destructive(text, self.destructive_warning)
                 ):
-                    click.secho(
-                        "Destructive statements must be run within a transaction."
-                    )
+                    click.secho("Destructive statements must be run within a transaction.")
                     raise KeyboardInterrupt
-                destroy = confirm_destructive_query(
-                    text, self.destructive_warning, self.dsn_alias
-                )
+                destroy = confirm_destructive_query(text, self.destructive_warning, self.dsn_alias)
                 if destroy is False:
                     click.secho("Wise choice!")
                     raise KeyboardInterrupt
@@ -757,11 +799,8 @@ class PGCli:
             if self.destructive_warning_restarts_connection:
                 # Restart connection to the database
                 self.pgexecute.connect()
-                logger.debug(
-                    "cancelled query and restarted connection, sql: %r", text)
-                click.secho(
-                    "cancelled query and restarted connection", err=True, fg="red"
-                )
+                logger.debug("cancelled query and restarted connection, sql: %r", text)
+                click.secho("cancelled query and restarted connection", err=True, fg="red")
             else:
                 logger.debug("cancelled query, sql: %r", text)
                 click.secho("cancelled query", err=True, fg="red")
@@ -781,9 +820,7 @@ class PGCli:
             click.secho(str(e), err=True, fg="red")
         else:
             try:
-                if self.output_file and not text.startswith(
-                    ("\\o ", "\\? ", "\\echo ")
-                ):
+                if self.output_file and not text.startswith(("\\o ", "\\log-file", "\\? ", "\\echo ")):
                     try:
                         with open(self.output_file, "a", encoding="utf-8") as f:
                             click.echo(text, file=f)
@@ -793,7 +830,25 @@ class PGCli:
                         click.secho(str(e), err=True, fg="red")
                 else:
                     if output:
-                        self.echo_via_pager("\n".join(output), query=query)
+                        skip_pager = query and (
+                            not query.successful or query.meta_changed
+                            or query.db_changed or query.path_changed or query.mutated
+                        )
+                        if skip_pager:
+                            click.echo("\n".join(output))
+                        else:
+                            self.echo_via_pager("\n".join(output))
+
+                # Log to file in addition to normal output
+                if self.log_file and not text.startswith(("\\o ", "\\log-file", "\\? ", "\\echo ")) and not text.strip() == "":
+                    try:
+                        with open(self.log_file, "a", encoding="utf-8") as f:
+                            click.echo(dt.datetime.now().isoformat(), file=f)  # timestamp log
+                            click.echo(text, file=f)
+                            click.echo("\n".join(output), file=f)
+                            click.echo("", file=f)  # extra newline
+                    except OSError as e:
+                        click.secho(str(e), err=True, fg="red")
             except KeyboardInterrupt:
                 pass
 
@@ -804,11 +859,9 @@ class PGCli:
                         "Time: %0.03fs (%s), executed in: %0.03fs (%s)"
                         % (
                             query.total_time,
-                            pendulum.Duration(
-                                seconds=query.total_time).in_words(),
+                            duration_in_words(query.total_time),
                             query.execution_time,
-                            pendulum.Duration(
-                                seconds=query.execution_time).in_words(),
+                            duration_in_words(query.execution_time),
                         )
                     )
                 else:
@@ -825,8 +878,7 @@ class PGCli:
             elif query.path_changed:
                 logger.debug("Refreshing search path")
                 with self._completer_lock:
-                    self.completer.set_search_path(
-                        self.pgexecute.search_path())
+                    self.completer.set_search_path(self.pgexecute.search_path())
                 logger.debug("Search path: %r", self.completer.search_path)
         return query
 
@@ -919,9 +971,7 @@ class PGCli:
             try:
                 self.watch_command = self.query_history[-1].query
             except IndexError:
-                click.secho(
-                    "\\watch cannot be used with an empty query", err=True, fg="red"
-                )
+                click.secho("\\watch cannot be used with an empty query", err=True, fg="red")
                 self.watch_command = None
 
         # If there's a command to \watch, run it in a loop.
@@ -929,8 +979,7 @@ class PGCli:
             while self.watch_command:
                 try:
                     query = self.execute_command(self.watch_command)
-                    click.echo(f"Waiting for {
-                               timing} seconds before repeating")
+                    click.echo(f"Waiting for {timing} seconds before repeating")
                     sleep(timing)
                 except KeyboardInterrupt:
                     self.watch_command = None
@@ -952,10 +1001,7 @@ class PGCli:
 
             prompt = self.get_prompt(prompt_format)
 
-            if (
-                prompt_format == self.default_prompt
-                and len(prompt) > self.max_len_prompt
-            ):
+            if prompt_format == self.default_prompt and len(prompt) > self.max_len_prompt:
                 prompt = self.get_prompt("\\d> ")
 
             prompt = prompt.replace("\\x1b", "\x1b")
@@ -983,8 +1029,7 @@ class PGCli:
                 input_processors=[
                     # Highlight matching brackets while editing.
                     ConditionalProcessor(
-                        processor=HighlightMatchingBracketProcessor(
-                            chars="[](){}"),
+                        processor=HighlightMatchingBracketProcessor(chars="[](){}"),
                         filter=HasFocus(DEFAULT_BUFFER) & ~IsDone(),
                     ),
                     # Render \t as 4 spaces instead of "^I"
@@ -998,8 +1043,7 @@ class PGCli:
                 # controls layout/display of the prompt/buffer
                 multiline=True,
                 history=history,
-                completer=ThreadedCompleter(
-                    DynamicCompleter(lambda: self.completer)),
+                completer=ThreadedCompleter(DynamicCompleter(lambda: self.completer)),
                 complete_while_typing=True,
                 style=style_factory(self.syntax_style, self.cli_style),
                 include_default_pygments_style=False,
@@ -1020,12 +1064,7 @@ class PGCli:
         if not is_select(sql):
             return False
 
-        return (
-            not self._has_limit(sql)
-            and self.row_limit != 0
-            and cur
-            and cur.rowcount > self.row_limit
-        )
+        return not self._has_limit(sql) and self.row_limit != 0 and cur and cur.rowcount > self.row_limit
 
     def _has_limit(self, sql):
         if not sql:
@@ -1066,7 +1105,7 @@ class PGCli:
         res = self.pgexecute.run(
             text,
             self.pgspecial,
-            exception_formatter,
+            lambda x: exception_formatter(x, self.verbose_errors),
             on_error_resume,
             explain_mode=self.explain_mode,
         )
@@ -1091,21 +1130,16 @@ class PGCli:
                 table_format=self.table_format,
                 dcmlfmt=self.decimal_format,
                 floatfmt=self.float_format,
+                column_date_formats=self.column_date_formats,
                 missingval=self.null_string,
                 expanded=expanded,
                 max_width=max_width,
-                case_function=(
-                    self.completer.case
-                    if self.settings["case_column_headers"]
-                    else lambda x: x
-                ),
+                case_function=(self.completer.case if self.settings["case_column_headers"] else lambda x: x),
                 style_output=self.style_output,
                 max_field_width=self.max_field_width,
             )
             execution = time() - start
-            formatted = format_output(
-                title, cur, headers, status, settings, self.explain_mode
-            )
+            formatted = format_output(title, cur, headers, status, settings, self.explain_mode)
 
             output.extend(formatted)
             total = time() - start
@@ -1144,9 +1178,7 @@ class PGCli:
             click.secho("Reconnect Failed", fg="red")
             click.secho(str(e), err=True, fg="red")
         else:
-            retry = self.auto_retry_closed_connection or confirm(
-                "Run the query from before reconnecting?"
-            )
+            retry = self.auto_retry_closed_connection or confirm("Run the query from before reconnecting?")
             if retry:
                 click.secho("Running query...", fg="green")
                 # Don't get stuck in a retry loop
@@ -1161,9 +1193,7 @@ class PGCli:
         :param persist_priorities: 'all' or 'keywords'
         """
 
-        callback = functools.partial(
-            self._on_completions_refreshed, persist_priorities=persist_priorities
-        )
+        callback = functools.partial(self._on_completions_refreshed, persist_priorities=persist_priorities)
         return self.completion_refresher.refresh(
             self.pgexecute,
             self.pgspecial,
@@ -1214,9 +1244,7 @@ class PGCli:
 
     def get_completions(self, text, cursor_positition):
         with self._completer_lock:
-            return self.completer.get_completions(
-                Document(text=text, cursor_position=cursor_positition), None
-            )
+            return self.completer.get_completions(Document(text=text, cursor_position=cursor_positition), None)
 
     def get_prompt(self, string):
         # should be before replacing \\d
@@ -1231,14 +1259,15 @@ class PGCli:
             str(self.pgexecute.port) if self.pgexecute.port is not None else "5432",
         )
         string = string.replace("\\i", str(self.pgexecute.pid) or "(none)")
-        string = string.replace(
-            "\\#", "#" if self.pgexecute.superuser else ">")
-        if "\\s" in string:
-            search_path = self.completer.search_path or ["public"]
-            label = ",".join(e for e in search_path if e != "pg_catalog")
-            string = string.replace("\\s", label)
+        string = string.replace("\\s", self.get_search_path_prompt())
+        string = string.replace("\\#", "#" if self.pgexecute.superuser else ">")
         string = string.replace("\\n", "\n")
         return string
+
+    def get_search_path_prompt(self):
+        paths = self.completer.search_path or []
+        ignoreds = ['pg_catalog', 'information_schema']
+        return ",".join([p for p in paths if p not in ignoreds])
 
     def get_last_query(self):
         """Get the last query executed or None."""
@@ -1248,10 +1277,7 @@ class PGCli:
         """Will this line be too wide to fit into terminal?"""
         if not self.prompt_app:
             return False
-        return (
-            len(COLOR_CODE_REGEX.sub("", line))
-            > self.prompt_app.output.get_size().columns
-        )
+        return len(COLOR_CODE_REGEX.sub("", line)) > self.prompt_app.output.get_size().columns
 
     def is_too_tall(self, lines):
         """Are there too many lines to fit into terminal?"""
@@ -1259,13 +1285,10 @@ class PGCli:
             return False
         return len(lines) >= (self.prompt_app.output.get_size().rows - 4)
 
-    def echo_via_pager(self, text, color=None, query=None):
+    def echo_via_pager(self, text, color=None):
         if self.pgspecial.pager_config == PAGER_OFF or self.watch_command:
             click.echo(text, color=color)
-        elif (
-            self.pgspecial.pager_config == PAGER_LONG_OUTPUT
-            and self.table_format != "csv"
-        ):
+        elif self.pgspecial.pager_config == PAGER_LONG_OUTPUT and self.table_format != "csv":
             lines = text.split("\n")
 
             # The last 4 lines are reserved for the pgcli menu and padding
@@ -1274,11 +1297,6 @@ class PGCli:
             else:
                 click.echo(text, color=color)
         else:
-            skip_rvisidata = query and (
-                not query.successful or query.meta_changed
-                or query.db_changed or query.path_changed or query.mutated
-            )
-            os.environ['RVISIDATA_SKIP'] = '1' if skip_rvisidata else '0'
             click.echo_via_pager(text, color)
 
 
@@ -1295,7 +1313,7 @@ class PGCli:
     "-p",
     "--port",
     default=5432,
-    help="Port number at which the " "postgres instance is listening.",
+    help="Port number at which the postgres instance is listening.",
     envvar="PGPORT",
     type=click.INT,
 )
@@ -1305,9 +1323,7 @@ class PGCli:
     "username_opt",
     help="Username to connect to the postgres database.",
 )
-@click.option(
-    "-u", "--user", "username_opt", help="Username to connect to the postgres database."
-)
+@click.option("-u", "--user", "username_opt", help="Username to connect to the postgres database.")
 @click.option(
     "-W",
     "--password",
@@ -1361,6 +1377,12 @@ class PGCli:
     help="Set threshold for row limit prompt. Use 0 to disable prompt.",
 )
 @click.option(
+    "--application-name",
+    default="pgcli",
+    envvar="PGAPPNAME",
+    help="Application name for the connection.",
+)
+@click.option(
     "--less-chatty",
     "less_chatty",
     is_flag=True,
@@ -1378,6 +1400,13 @@ class PGCli:
     "list_databases",
     is_flag=True,
     help="list available databases, then exit.",
+)
+@click.option(
+    "--ping",
+    "ping_database",
+    is_flag=True,
+    default=False,
+    help="Check database connectivity, then exit.",
 )
 @click.option(
     "--auto-vertical-output",
@@ -1400,6 +1429,17 @@ class PGCli:
     default=None,
     help="Set initial search path (comma-separated list of schemas).",
 )
+@click.option(
+    "--log-file",
+    default=None,
+    help="Write all queries & output into a file, in addition to the normal output destination.",
+)
+@click.option(
+    "--init-command",
+    "init_command",
+    type=str,
+    help="SQL statement to execute after connecting.",
+)
 @click.argument("dbname", default=lambda: None, envvar="PGDATABASE", nargs=1)
 @click.argument("username", default=lambda: None, envvar="PGUSER", nargs=1)
 def cli(
@@ -1416,15 +1456,19 @@ def cli(
     pgclirc,
     dsn,
     row_limit,
+    application_name,
     less_chatty,
     prompt,
     prompt_dsn,
     list_databases,
+    ping_database,
     auto_vertical_output,
     list_dsn,
     warn,
     ssh_tunnel: str,
-    search_path: str,
+	search_path: str,
+    init_command: str,
+    log_file: str,
 ):
     if version:
         print("Version:", __version__)
@@ -1452,14 +1496,13 @@ def cli(
             for alias in cfg["alias_dsn"]:
                 click.secho(alias + " : " + cfg["alias_dsn"][alias])
             sys.exit(0)
-        except Exception as err:
+        except Exception:
             click.secho(
-                "Invalid DSNs found in the config file. "
-                'Please check the "[alias_dsn]" section in pgclirc.',
+                "Invalid DSNs found in the config file. Please check the \"[alias_dsn]\" section in pgclirc.",
                 err=True,
                 fg="red",
             )
-            exit(1)
+            sys.exit(1)
 
     if ssh_tunnel and not SSH_TUNNEL_SUPPORT:
         click.secho(
@@ -1468,13 +1511,14 @@ def cli(
             err=True,
             fg="red",
         )
-        exit(1)
+        sys.exit(1)
 
     pgcli = PGCli(
         prompt_passwd,
         never_prompt,
         pgclirc_file=pgclirc,
         row_limit=row_limit,
+        application_name=application_name,
         single_connection=single_connection,
         less_chatty=less_chatty,
         prompt=prompt,
@@ -1482,6 +1526,7 @@ def cli(
         auto_vertical_output=auto_vertical_output,
         warn=warn,
         ssh_tunnel_url=ssh_tunnel,
+        log_file=log_file,
     )
 
     # Choose which ever one has a valid value.
@@ -1495,30 +1540,28 @@ def cli(
         service = database[8:]
     elif os.getenv("PGSERVICE") is not None:
         service = os.getenv("PGSERVICE")
-    # because option --list or -l are not supposed to have a db name
-    if list_databases:
+    # because option --ping, --list or -l are not supposed to have a db name
+    if list_databases or ping_database:
         database = "postgres"
 
+    cfg = load_config(pgclirc, config_full_path)
     if dsn != "":
         try:
-            cfg = load_config(pgclirc, config_full_path)
             dsn_config = cfg["alias_dsn"][dsn]
         except KeyError:
             click.secho(
-                f"Could not find a DSN with alias {dsn}. "
-                'Please check the "[alias_dsn]" section in pgclirc.',
+                f"Could not find a DSN with alias {dsn}. Please check the \"[alias_dsn]\" section in pgclirc.",
                 err=True,
                 fg="red",
             )
-            exit(1)
+            sys.exit(1)
         except Exception:
             click.secho(
-                "Invalid DSNs found in the config file. "
-                'Please check the "[alias_dsn]" section in pgclirc.',
+                "Invalid DSNs found in the config file. Please check the \"[alias_dsn]\" section in pgclirc.",
                 err=True,
                 fg="red",
             )
-            exit(1)
+            sys.exit(1)
         pgcli.connect_uri(dsn_config)
         pgcli.dsn_alias = dsn
     elif "://" in database:
@@ -1536,6 +1579,80 @@ def cli(
         search_path_sql = f"SET search_path TO {','.join(schemas)};"
         pgcli.execute_command(search_path_sql)
 
+    if "use_local_timezone" not in cfg["main"] or cfg["main"].as_bool("use_local_timezone"):
+        server_tz = pgcli.pgexecute.get_timezone()
+
+        def echo_error(msg: str):
+            click.secho(
+                "Failed to determine the local time zone",
+                err=True,
+                fg="yellow",
+            )
+            click.secho(
+                msg,
+                err=True,
+                fg="yellow",
+            )
+            click.secho(
+                f"Continuing with the default time zone as preset by the server ({server_tz})",
+                err=True,
+                fg="yellow",
+            )
+            click.secho(
+                "Set `use_local_timezone = False` in the config to avoid trying to override the server time zone\n",
+                err=True,
+                dim=True,
+            )
+
+        local_tz = None
+        try:
+            local_tz = tzlocal.get_localzone_name()
+
+            if local_tz is None:
+                echo_error("No local time zone configuration found\n")
+            else:
+                click.secho(
+                    f"Using local time zone {local_tz} (server uses {server_tz})",
+                    fg="green",
+                )
+                click.secho(
+                    "Use `set time zone <TZ>` to override, or set `use_local_timezone = False` in the config",
+                    dim=True,
+                )
+
+                pgcli.pgexecute.set_timezone(local_tz)
+        except ZoneInfoNotFoundError as e:
+            # e.args[0] is the pre-formatted message which includes a list
+            # of conflicting sources
+            echo_error(e.args[0])
+
+    # Merge init-commands: global, DSN-specific, then CLI-provided
+    init_cmds = []
+    # 1) Global init-commands
+    global_section = pgcli.config.get("init-commands", {})
+    for _, val in global_section.items():
+        if isinstance(val, (list, tuple)):
+            init_cmds.extend(val)
+        elif val:
+            init_cmds.append(val)
+    # 2) DSN-specific init-commands
+    if dsn:
+        alias_section = pgcli.config.get("alias_dsn.init-commands", {})
+        if dsn in alias_section:
+            val = alias_section.get(dsn)
+            if isinstance(val, (list, tuple)):
+                init_cmds.extend(val)
+            elif val:
+                init_cmds.append(val)
+    # 3) CLI-provided init-command
+    if init_command:
+        init_cmds.append(init_command)
+    if init_cmds:
+        click.echo("Running init commands: %s" % "; ".join(init_cmds))
+        for cmd in init_cmds:
+            # Execute each init command
+            list(pgcli.pgexecute.run(cmd))
+
     if list_databases:
         cur, headers, status = pgcli.pgexecute.full_databases()
 
@@ -1546,18 +1663,26 @@ def cli(
 
         sys.exit(0)
 
+    if ping_database:
+        try:
+            list(pgcli.pgexecute.run("SELECT 1"))
+        except Exception:
+            click.secho(
+                "Could not connect to the database. Please check that the database is running.",
+                err=True,
+                fg="red",
+            )
+            sys.exit(1)
+        else:
+            click.echo("PONG")
+            sys.exit(0)
+
     pgcli.logger.debug(
-        "Launch Params: \n"
-        "\tdatabase: %r"
-        "\tuser: %r"
-        "\thost: %r"
-        "\tport: %r"
-        "\tsearch_path: %r",
+        "Launch Params: \n\tdatabase: %r\tuser: %r\thost: %r\tport: %r",
         database,
         user,
         host,
         port,
-        search_path,
     )
 
     if setproctitle:
@@ -1571,9 +1696,7 @@ def obfuscate_process_password():
     if "://" in process_title:
         process_title = re.sub(r":(.*):(.*)@", r":\1:xxxx@", process_title)
     elif "=" in process_title:
-        process_title = re.sub(
-            r"password=(.+?)((\s[a-zA-Z]+=)|$)", r"password=xxxx\2", process_title
-        )
+        process_title = re.sub(r"password=(.+?)((\s[a-zA-Z]+=)|$)", r"password=xxxx\2", process_title)
 
     setproctitle.setproctitle(process_title)
 
@@ -1625,8 +1748,71 @@ def is_select(status):
     return status.split(None, 1)[0].lower() == "select"
 
 
-def exception_formatter(e):
-    return click.style(str(e), fg="red")
+def diagnostic_output(diagnostic: Diagnostic) -> str:
+    fields = []
+
+    if diagnostic.severity is not None:
+        fields.append("Severity: " + diagnostic.severity)
+
+    if diagnostic.severity_nonlocalized is not None:
+        fields.append("Severity (non-localized): " + diagnostic.severity_nonlocalized)
+
+    if diagnostic.sqlstate is not None:
+        fields.append("SQLSTATE code: " + diagnostic.sqlstate)
+
+    if diagnostic.message_primary is not None:
+        fields.append("Message: " + diagnostic.message_primary)
+
+    if diagnostic.message_detail is not None:
+        fields.append("Detail: " + diagnostic.message_detail)
+
+    if diagnostic.message_hint is not None:
+        fields.append("Hint: " + diagnostic.message_hint)
+
+    if diagnostic.statement_position is not None:
+        fields.append("Position: " + diagnostic.statement_position)
+
+    if diagnostic.internal_position is not None:
+        fields.append("Internal position: " + diagnostic.internal_position)
+
+    if diagnostic.internal_query is not None:
+        fields.append("Internal query: " + diagnostic.internal_query)
+
+    if diagnostic.context is not None:
+        fields.append("Where: " + diagnostic.context)
+
+    if diagnostic.schema_name is not None:
+        fields.append("Schema name: " + diagnostic.schema_name)
+
+    if diagnostic.table_name is not None:
+        fields.append("Table name: " + diagnostic.table_name)
+
+    if diagnostic.column_name is not None:
+        fields.append("Column name: " + diagnostic.column_name)
+
+    if diagnostic.datatype_name is not None:
+        fields.append("Data type name: " + diagnostic.datatype_name)
+
+    if diagnostic.constraint_name is not None:
+        fields.append("Constraint name: " + diagnostic.constraint_name)
+
+    if diagnostic.source_file is not None:
+        fields.append("File: " + diagnostic.source_file)
+
+    if diagnostic.source_line is not None:
+        fields.append("Line: " + diagnostic.source_line)
+
+    if diagnostic.source_function is not None:
+        fields.append("Routine: " + diagnostic.source_function)
+
+    return "\n".join(fields)
+
+
+def exception_formatter(e, verbose_errors: bool = False):
+    s = str(e)
+    if verbose_errors:
+        s += "\n" + diagnostic_output(e.diag)
+    return click.style(s, fg="red")
 
 
 def format_output(title, cur, headers, status, settings, explain_mode=False):
@@ -1650,9 +1836,7 @@ def format_output(title, cur, headers, status, settings, explain_mode=False):
     def format_arrays(data, headers, **_):
         data = list(data)
         for row in data:
-            row[:] = [
-                format_array(val) if isinstance(val, list) else val for val in row
-            ]
+            row[:] = [format_array(val) if isinstance(val, list) else val for val in row]
 
         return data, headers
 
@@ -1671,6 +1855,7 @@ def format_output(title, cur, headers, status, settings, explain_mode=False):
         "missing_value": settings.missingval,
         "integer_format": settings.dcmlfmt,
         "float_format": settings.floatfmt,
+        "column_date_formats": settings.column_date_formats,
         "preprocessors": (format_numbers, format_arrays),
         "disable_numparse": True,
         "preserve_whitespace": True,
@@ -1679,6 +1864,9 @@ def format_output(title, cur, headers, status, settings, explain_mode=False):
     }
     if not settings.floatfmt:
         output_kwargs["preprocessors"] = (align_decimals,)
+
+    if settings.column_date_formats:
+        output_kwargs["preprocessors"] += (format_timestamps,)
 
     if table_format == "csv":
         # The default CSV dialect is "excel" which is not handling newline values correctly
@@ -1713,13 +1901,7 @@ def format_output(title, cur, headers, status, settings, explain_mode=False):
             formatted = iter(formatted.splitlines())
         first_line = next(formatted)
         formatted = itertools.chain([first_line], formatted)
-        if (
-            not explain_mode
-            and not expanded
-            and max_width
-            and len(strip_ansi(first_line)) > max_width
-            and headers
-        ):
+        if not explain_mode and not expanded and max_width and len(strip_ansi(first_line)) > max_width and headers:
             formatted = formatter.format_output(
                 cur,
                 headers,
@@ -1747,8 +1929,7 @@ def parse_service_info(service):
         if platform.system() == "Windows":
             service_file = os.getenv("PGSYSCONFDIR") + "\\pg_service.conf"
         elif os.getenv("PGSYSCONFDIR"):
-            service_file = os.path.join(
-                os.getenv("PGSYSCONFDIR"), ".pg_service.conf")
+            service_file = os.path.join(os.getenv("PGSYSCONFDIR"), ".pg_service.conf")
         else:
             service_file = os.path.expanduser("~/.pg_service.conf")
     if not service or not os.path.exists(service_file):
@@ -1765,6 +1946,29 @@ def parse_service_info(service):
         return None, service_file
     service_conf = service_file_config.get(service)
     return service_conf, service_file
+
+
+def duration_in_words(duration_in_seconds: float) -> str:
+    if not duration_in_seconds:
+        return "0 seconds"
+    components = []
+    hours, remainder = divmod(duration_in_seconds, 3600)
+    if hours > 1:
+        components.append(f"{hours} hours")
+    elif hours == 1:
+        components.append("1 hour")
+    minutes, seconds = divmod(remainder, 60)
+    if minutes > 1:
+        components.append(f"{minutes} minutes")
+    elif minutes == 1:
+        components.append("1 minute")
+    if seconds >= 2:
+        components.append(f"{int(seconds)} seconds")
+    elif seconds >= 1:
+        components.append("1 second")
+    elif seconds:
+        components.append(f"{round(seconds, 3)} second")
+    return " ".join(components)
 
 
 if __name__ == "__main__":

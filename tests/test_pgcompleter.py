@@ -1,5 +1,7 @@
+import json
 import pytest
 from pgcli import pgcompleter
+import tempfile
 
 
 def test_load_alias_map_file_missing_file():
@@ -37,9 +39,7 @@ def test_generate_alias_uses_upper_case_letters_from_name(table_name, alias):
         ("sometable", "s"),
     ],
 )
-def test_generate_alias_uses_first_char_and_every_preceded_by_underscore(
-    table_name, alias
-):
+def test_generate_alias_uses_first_char_and_every_preceded_by_underscore(table_name, alias):
     assert pgcompleter.generate_alias(table_name) == alias
 
 
@@ -47,6 +47,7 @@ def test_generate_alias_uses_first_char_and_every_preceded_by_underscore(
     "table_name, alias_map, alias",
     [
         ("some_table", {"some_table": "my_alias"}, "my_alias"),
+        pytest.param("some_other_table", {"some_table": "my_alias"}, "sot", id="no_match_in_map"),
     ],
 )
 def test_generate_alias_can_use_alias_map(table_name, alias_map, alias):
@@ -56,12 +57,29 @@ def test_generate_alias_can_use_alias_map(table_name, alias_map, alias):
 @pytest.mark.parametrize(
     "table_name, alias_map, alias",
     [
+        ("some_table", {"some_table": "my_alias"}, "my_alias"),
+    ],
+)
+def test_pgcompleter_alias_uses_configured_alias_map(table_name, alias_map, alias):
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as alias_map_file:
+        alias_map_file.write(json.dumps(alias_map))
+        alias_map_file.seek(0)
+        completer = pgcompleter.PGCompleter(
+            settings={
+                "generate_aliases": True,
+                "alias_map_file": alias_map_file.name,
+            }
+        )
+        assert completer.alias(table_name, []) == alias
+
+
+@pytest.mark.parametrize(
+    "table_name, alias_map, alias",
+    [
         ("SomeTable", {"SomeTable": "my_alias"}, "my_alias"),
     ],
 )
-def test_generate_alias_prefers_alias_over_upper_case_name(
-    table_name, alias_map, alias
-):
+def test_generate_alias_prefers_alias_over_upper_case_name(table_name, alias_map, alias):
     assert pgcompleter.generate_alias(table_name, alias_map) == alias
 
 

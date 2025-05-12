@@ -156,6 +156,11 @@ max_field_width = 500
 # Skip intro on startup and goodbye on exit
 less_chatty = False
 
+# Show all Postgres error fields (as listed in
+# https://www.postgresql.org/docs/current/protocol-error-fields.html).
+# Can be toggled with \v.
+verbose_errors = False
+
 # Postgres prompt
 # \t - Current date and time
 # \u - Username
@@ -166,7 +171,7 @@ less_chatty = False
 # \i - Postgres PID
 # \# - "@" sign if logged in as superuser, '>' in other case
 # \n - Newline
-# \s - Current search path
+# \s - Current search path(s)
 # \dsn_alias - name of dsn connection string alias if -D option is used (empty otherwise)
 # \x1b[...m - insert ANSI escape sequence
 # eg: prompt = '\x1b[35m\u@\x1b[32m\h:\x1b[36m\d>'
@@ -186,6 +191,10 @@ enable_pager = True
 
 # Use keyring to automatically save and load password in a secure manner
 keyring = True
+
+# Automatically set the session time zone to the local time zone
+# If unset, uses the server's time zone, which is the Postgres default
+use_local_timezone = True
 
 # Custom colors for the completion menu, toolbar, etc.
 [colors]
@@ -224,11 +233,20 @@ output.null = "#808080"
 
 # Named queries are queries you can execute by name.
 [named queries]
+# ver = "SELECT version()"
 
 # Here's where you can provide a list of connection string aliases.
 # You can use it by passing the -D option. `pgcli -D example_dsn`
 [alias_dsn]
 # example_dsn = postgresql://[user[:password]@][netloc][:port][/dbname]
+
+# Initial commands to execute when connecting to any database.
+[init-commands]
+# example = "SET search_path TO myschema"
+
+# Initial commands to execute when connecting to a DSN alias.
+[alias_dsn.init-commands]
+# example_dsn = "SET search_path TO otherschema; SET timezone TO 'UTC'"
 
 # Format for number representation
 # for decimal "d" - 12345678, ",d" - 12,345,678
@@ -236,3 +254,8 @@ output.null = "#808080"
 [data_formats]
 decimal = ""
 float = ""
+
+# Per column formats for date/timestamp columns
+[column_date_formats]
+# use strftime format, e.g.
+# created = "%Y-%m-%d"

@@ -2,10 +2,10 @@
 """A script to publish a release of pgcli to PyPI."""
 
 import io
-from optparse import OptionParser
 import re
 import subprocess
 import sys
+from optparse import OptionParser
 
 import click
 
@@ -45,9 +45,7 @@ def run_step(*args):
 
 
 def version(version_file):
-    _version_re = re.compile(
-        r'__version__\s+=\s+(?P<quote>[\'"])(?P<version>.*)(?P=quote)'
-    )
+    _version_re = re.compile(r'__version__\s+=\s+(?P<quote>[\'"])(?P<version>.*)(?P=quote)')
 
     with io.open(version_file, encoding="utf-8") as f:
         ver = _version_re.search(f.read()).group("version")
@@ -66,7 +64,8 @@ def create_git_tag(tag_name):
 
 
 def create_distribution_files():
-    run_step("python", "setup.py", "clean", "--all", "sdist", "bdist_wheel")
+    run_step("rm", "-rf", "dist/")
+    run_step("python", "-m", "build")
 
 
 def upload_distribution_files():
@@ -91,11 +90,11 @@ if __name__ == "__main__":
     if DEBUG:
         subprocess.check_output = lambda x: x
 
-    checks = [
-        "Have you updated the AUTHORS file?",
-        "Have you updated the `Usage` section of the README?",
-    ]
-    checklist(checks)
+    # checks = [
+    #     "Have you updated the AUTHORS file?",
+    #     "Have you updated the `Usage` section of the README?",
+    # ]
+    # checklist(checks)
 
     ver = version("pgcli/__init__.py")
     print("Releasing Version:", ver)
@@ -107,9 +106,7 @@ if __name__ == "__main__":
         action="store_true",
         dest="confirm_steps",
         default=False,
-        help=(
-            "Confirm every step. If the step is not " "confirmed, it will be skipped."
-        ),
+        help=("Confirm every step. If the step is not confirmed, it will be skipped."),
     )
     parser.add_option(
         "-d",

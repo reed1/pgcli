@@ -155,9 +155,10 @@ If you're interested in contributing to this project, first of all I would like
 to extend my heartfelt gratitude. I've written a small doc to describe how to
 get this running in a development setup.
 
-https://github.com/dbcli/pgcli/blob/master/DEVELOP.rst
+https://github.com/dbcli/pgcli/blob/main/CONTRIBUTING.rst
 
 Please feel free to reach out to us if you need help.
+
 * Amjith, pgcli author: amjith.r@gmail.com, Twitter: `@amjithr <http://twitter.com/amjithr>`_
 * Irina, pgcli maintainer: i.chernyavska@gmail.com, Twitter: `@irinatruong <http://twitter.com/irinatruong>`_
 
@@ -179,7 +180,7 @@ Alternatively, you can install ``pgcli`` as a python package using a package
 manager called called ``pip``. You will need postgres installed on your system
 for this to work.
 
-In depth getting started guide for ``pip`` - https://pip.pypa.io/en/latest/installing.html.
+In depth getting started guide for ``pip`` - https://pip.pypa.io/en/latest/installation/
 
 ::
 
@@ -209,43 +210,27 @@ If pip is not installed check if easy_install is available on the system.
 Linux:
 ======
 
-In depth getting started guide for ``pip`` - https://pip.pypa.io/en/latest/installing.html.
+Many distributions have ``pgcli`` packages.
+Refer to https://repology.org/project/pgcli/versions or your distribution to check the available versions.
 
-Check if pip is already available in your system.
+Alternatively, you can use tools such as `pipx`_ or `uvx`_ to install the latest published package to an isolated virtual environment.
 
-::
+.. _pipx: https://pipx.pypa.io/
+.. _uvx: https://docs.astral.sh/uv/guides/tools/
 
-    $ which pip
-
-If it doesn't exist, use your linux package manager to install `pip`. This
-might look something like:
-
-::
-
-    $ sudo apt-get install python-pip   # Debian, Ubuntu, Mint etc
-
-    or
-
-    $ sudo yum install python-pip  # RHEL, Centos, Fedora etc
-
-``pgcli`` requires python-dev, libpq-dev and libevent-dev packages. You can
-install these via your operating system package manager.
-
+Run:
 
 ::
 
-    $ sudo apt-get install python-dev libpq-dev libevent-dev
+    $ pipx install pgcli
 
-    or
-
-    $ sudo yum install python-devel postgresql-devel
-
-Then you can install pgcli:
+to install ``pgcli`` with ``pipx``, or run:
 
 ::
 
-    $ sudo pip install pgcli
+    $ uvx pgcli
 
+to run ``pgcli`` by installing on the fly with ``uvx``.
 
 Docker
 ======
@@ -352,7 +337,10 @@ choice:
 
     In [3]: my_result = _
 
-Pgcli dropped support for Python<3.8 as of 4.0.0. If you need it, install ``pgcli <= 4.0.0``.
+Pgcli dropped support for:
+
+* Python<3.8 as of 4.0.0.
+* Python<3.9 as of 4.2.0.
 
 Thanks:
 -------
@@ -375,12 +363,12 @@ Thanks to all the beta testers and contributors for your time and patience. :)
 .. |Build Status| image:: https://github.com/dbcli/pgcli/actions/workflows/ci.yml/badge.svg?branch=main
     :target: https://github.com/dbcli/pgcli/actions/workflows/ci.yml
 
-.. |CodeCov| image:: https://codecov.io/gh/dbcli/pgcli/branch/master/graph/badge.svg
+.. |CodeCov| image:: https://codecov.io/gh/dbcli/pgcli/branch/main/graph/badge.svg
    :target: https://codecov.io/gh/dbcli/pgcli
    :alt: Code coverage report
 
-.. |Landscape| image:: https://landscape.io/github/dbcli/pgcli/master/landscape.svg?style=flat
-   :target: https://landscape.io/github/dbcli/pgcli/master
+.. |Landscape| image:: https://landscape.io/github/dbcli/pgcli/main/landscape.svg?style=flat
+   :target: https://landscape.io/github/dbcli/pgcli/main
    :alt: Code Health
 
 .. |PyPI| image:: https://img.shields.io/pypi/v/pgcli.svg

@@ -1,11 +1,69 @@
-Upcoming
-========
+Upcoming (TBD)
+==============
+
+Features:
+---------
+* Add support for `init-command` to run when the connection is established.
+    * Command line option `--init-command`
+    * Provide `init-command` in the config file
+    * Support dsn specific init-command in the config file
+
+Internal:
+---------
+
+* Moderize the repository
+  * Use uv instead of pip
+  * Use github trusted publisher for pypi release
+  * Update dev requirements and replace requirements-dev.txt with pyproject.toml
+  * Use ruff instead of black
+
+4.3.0 (2025-03-22)
+==================
+
+Features
+--------
+* The session time zone setting is set to the system time zone by default
+
+4.2.0 (2025-03-06)
+==================
+
+Features
+--------
+* Add a `--ping` command line option; allows pgcli to replace `pg_isready`
+* Changed the packaging metadata from setup.py to pyproject.toml
+* Add bash completion for services defined in the service file `~/.pg_service.conf`
+* Added support for per-column date/time formatting using `column_date_formats` in config
+
+Bug fixes:
+----------
+* Avoid raising `NameError` when exiting unsuccessfully in some cases
+* Use configured `alias_map_file` to generate table aliases if available.
+
+Internal:
+---------
+
+* Drop support for Python 3.8 and add 3.13.
+
+4.1.0 (2024-03-09)
+==================
+
+Features:
+---------
+* Support `PGAPPNAME` as an environment variable and `--application-name` as a command line argument.
+* Add `verbose_errors` config and `\v` special command which enable the
+  displaying of all Postgres error fields received.
+* Show Postgres notifications.
+* Support sqlparse 0.5.x
+* Add `--log-file [filename]` cli argument and `\log-file [filename]` special commands to
+  log to an external file in addition to the normal output
 
 Bug fixes:
 ----------
 
 * Fix display of "short host" in prompt (with `\h`) for IPv4 addresses ([issue 964](https://github.com/dbcli/pgcli/issues/964)).
-
+* Fix backwards display of NOTICEs from a Function ([issue 1443](https://github.com/dbcli/pgcli/issues/1443))
+* Fix psycopg errors when installing on Windows.  ([issue 1413](https://https://github.com/dbcli/pgcli/issues/1413))
+* Use a home-made function to display query duration instead of relying on a third-party library (the general behaviour does not change), which fixes the installation of `pgcli` on 32-bit architectures ([issue 1451](https://github.com/dbcli/pgcli/issues/1451))
 
 ==================
 4.0.1 (2023-10-30)

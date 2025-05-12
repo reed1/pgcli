@@ -26,6 +26,19 @@ def step_see_list_databases(context):
     context.cmd_output = None
 
 
+@when("we ping the database")
+def step_ping_database(context):
+    cmd = ["pgcli", "--ping"]
+    context.cmd_output = subprocess.check_output(cmd, cwd=context.package_root)
+
+
+@then("we get a pong response")
+def step_get_pong_response(context):
+    # exit code 0 is implied by the presence of cmd_output here, which
+    # is only set on a successful run.
+    assert b"PONG" in context.cmd_output.strip(), f"Output was {context.cmd_output}"
+
+
 @when("we run dbcli")
 def step_run_cli(context):
     wrappers.run_cli(context)
@@ -49,9 +62,7 @@ def step_run_cli_using_arg(context, arg):
         arg = "service=mock_postgres --password"
         prompt_check = False
         currentdb = "postgres"
-    wrappers.run_cli(
-        context, run_args=[arg], prompt_check=prompt_check, currentdb=currentdb
-    )
+    wrappers.run_cli(context, run_args=[arg], prompt_check=prompt_check, currentdb=currentdb)
 
 
 @when("we wait for prompt")
@@ -175,9 +186,7 @@ def step_send_source_command(context):
 
 @when("we run query to check application_name")
 def step_check_application_name(context):
-    context.cli.sendline(
-        "SELECT 'found' FROM pg_stat_activity WHERE application_name = 'pgcli' HAVING COUNT(*) > 0;"
-    )
+    context.cli.sendline("SELECT 'found' FROM pg_stat_activity WHERE application_name = 'pgcli' HAVING COUNT(*) > 0;")
 
 
 @then("we see found")

@@ -42,6 +42,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 .pytest_cache
+tests/behave.ini
 
 # Translations
 *.mo
@@ -71,4 +72,5 @@ target/
 venv/
 
 .ropeproject/
+uv.lock
 
