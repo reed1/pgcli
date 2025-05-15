@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 from prompt_toolkit.key_binding import KeyBindings
 
@@ -22,19 +23,23 @@ def add_custom_key_bindings(kb, pgcli):
         query = "SELECT schema_name FROM information_schema.schemata"
         result = pgcli.pgexecute.run(query)
         schemas = [row[0] for _, cur, *_ in result for row in cur.fetchall()]
-        filtereds = sorted([
-            e for e in schemas
-            if not e.startswith('pg_') and e != 'information_schema'
-        ])
+        filtereds = sorted(
+            [
+                e
+                for e in schemas
+                if not e.startswith("pg_") and e != "information_schema"
+            ]
+        )
         sorteds = custom_sort_schemas(filtereds)
         schema = subprocess.run(
-            ['rofi', '-dmenu', '-p', 'Select schema'],
-            input='\n'.join(sorteds),
+            ["rofi", "-dmenu", "-p", "Select schema"],
+            input="\n".join(sorteds),
             text=True,
-            capture_output=True
+            capture_output=True,
         ).stdout.strip()
         if not schema:
             return
+        persists_last_schema(schema)
         buff = event.app.current_buffer
         buff.text = f"set search_path to '{schema}';"
         buff.validate_and_handle()
@@ -54,5 +59,13 @@ def custom_sort_schemas(schemas):
                 res.append({str(x): str(9 - x) for x in range(10)}[part])
             else:
                 res.append(part)
-        return ''.join(res)
+        return "".join(res)
+
     return sorted(schemas, key=custom_sort_key)
+
+
+def persists_last_schema(schema_name: str):
+    dbconfig_id = os.environ.get("DBCONFIG_ID")
+    fcache = os.path.expanduser(f"~/.cache/rlocal/db/{dbconfig_id}.last_schema")
+    with open(fcache, "w") as f:
+        f.write(schema_name)
