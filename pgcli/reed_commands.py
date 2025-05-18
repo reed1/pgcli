@@ -236,7 +236,8 @@ class ReedCommands:
             capture_output=True,
             check=True,
         )
-        return [(None, [[output.stdout, output.stderr]], ['result', 'error'], None, '', True, False)]
+        subprocess.run(['less'], input=output.stdout, check=True, text=True)
+        return [(None, [], [], None, '', True, False)]
 
     def find_useful_columns(self, table_name: str):
         useful_cols = ['id', 'parent_id', 'level',
