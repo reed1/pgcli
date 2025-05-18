@@ -1,5 +1,6 @@
 import re
-
+import os
+import subprocess
 
 class ReedCommands:
     TABLE_PATTERN = r'[\w_."]+'
@@ -28,6 +29,9 @@ class ReedCommands:
         )
         self.pgcli.pgspecial.register(
             self.get_distinct_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
+        )
+        self.pgcli.pgspecial.register(
+            self.show_create_table, "\\sct", "\\sct table", "Show create table."
         )
 
     def drill_one(self, pattern, **_):
@@ -206,6 +210,42 @@ class ReedCommands:
             on_error_resume=on_error_resume,
             explain_mode=self.pgcli.explain_mode,
         )
+
+    def show_create_table(self, pattern, **_):
+        if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \sct table")
+        table = pattern.strip()
+        pge = self.pgcli.pgexecute
+        """
+pg_dump -U your_user -d your_db -t workspace --schema-only"""
+        """
+:return: Generator yielding tuples containing
+                 (title, rows, headers, status, query, success, is_special)"""
+
+        output = subprocess.run([
+            'pg_dump',
+            '-U', pge.user,
+            '-d', pge.dbname,
+            '-t', table,
+            '-h', pge.host,
+            *(['-p', pge.port] if pge.port else []),
+            '--schema-only',
+            '--no-comments',
+            '--no-owner',
+            '--no-acl',
+        ],
+            env={
+                'PGPASSWORD': pge.password,
+                **os.environ
+            },
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return [(None, [[output.stdout, output.stderr]], ['result', 'error'], None, '', True, False)]
+
+
+
 
     def find_useful_columns(self, table_name: str):
         useful_cols = ['id', 'parent_id', 'level',
