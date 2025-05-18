@@ -216,12 +216,6 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \sct table")
         table = pattern.strip()
         pge = self.pgcli.pgexecute
-        """
-pg_dump -U your_user -d your_db -t workspace --schema-only"""
-        """
-:return: Generator yielding tuples containing
-                 (title, rows, headers, status, query, success, is_special)"""
-
         output = subprocess.run([
             'pg_dump',
             '-U', pge.user,
@@ -243,9 +237,6 @@ pg_dump -U your_user -d your_db -t workspace --schema-only"""
             check=True,
         )
         return [(None, [[output.stdout, output.stderr]], ['result', 'error'], None, '', True, False)]
-
-
-
 
     def find_useful_columns(self, table_name: str):
         useful_cols = ['id', 'parent_id', 'level',
