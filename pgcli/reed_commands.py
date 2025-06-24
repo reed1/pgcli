@@ -2,6 +2,7 @@ import re
 import os
 import subprocess
 
+
 class ReedCommands:
     TABLE_PATTERN = r'[\w_."]+'
 
@@ -19,7 +20,10 @@ class ReedCommands:
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
         )
         self.pgcli.pgspecial.register(
-            self.drill_down_kode, "\\dk", "\\dk table kode", "Drill down a table by dot-joined kode."
+            self.drill_down_kode,
+            "\\dk",
+            "\\dk table kode",
+            "Drill down a table by dot-joined kode.",
         )
         self.pgcli.pgspecial.register(
             self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table."
@@ -28,7 +32,10 @@ class ReedCommands:
             self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
         )
         self.pgcli.pgspecial.register(
-            self.get_distinct_count, "\\dc", "\\dc table col1 col2..", "Get distinct column values count."
+            self.get_distinct_count,
+            "\\dc",
+            "\\dc table col1 col2..",
+            "Get distinct column values count.",
         )
         self.pgcli.pgspecial.register(
             self.show_create_table, "\\sct", "\\sct table", "Show create table."
@@ -36,9 +43,8 @@ class ReedCommands:
 
     def drill_one(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN}( \d+)?$", pattern):
-            raise ValueError(
-                r"Invalid pattern. Should be \do table [id]")
-        [table, *args] = re.split(r'\s+', pattern)
+            raise ValueError(r"Invalid pattern. Should be \do table [id]")
+        [table, *args] = re.split(r"\s+", pattern)
         if len(args) == 0:
             query = f"select * from {table} limit 100"
         elif len(args) == 1:
@@ -54,10 +60,9 @@ class ReedCommands:
 
     def drill_down(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+$", pattern):
-            raise ValueError(
-                "Invalid pattern. Should be \\\\dd <table> <parent_id>")
+            raise ValueError("Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
-        q_cols = ', '.join(self.find_useful_columns(table))
+        q_cols = ", ".join(self.find_useful_columns(table))
         query = f"select {q_cols} nama from {
             table} where parent_id = {parent_id}"
         on_error_resume = self.pgcli.on_error == "RESUME"
@@ -71,11 +76,11 @@ class ReedCommands:
     def drill_up(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
-        [table, row_id, *args] = re.split(r'\s+', pattern)
+        [table, row_id, *args] = re.split(r"\s+", pattern)
         table, row_id = pattern.split()
         cols = self.find_useful_columns(table)
-        q_cols = ', '.join(cols)
-        qc_cols = ', '.join([f'c.{x}' for x in cols])
+        q_cols = ", ".join(cols)
+        qc_cols = ", ".join([f"c.{x}" for x in cols])
         query = f"""
         with recursive cte as (
             select {q_cols}, 1 as depth from {table} where id = {row_id}
@@ -96,10 +101,10 @@ class ReedCommands:
     def drill_down_kode(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} [\w.]+$", pattern):
             raise ValueError(r"Invalid pattern. Should be \dk table kode")
-        [table, kode] = re.split(r'\s+', pattern)
+        [table, kode] = re.split(r"\s+", pattern)
         cols = self.find_useful_columns(table)
-        kodes = kode.split('.')
-        query = f'''
+        kodes = kode.split(".")
+        query = f"""
         with recursive td as (
             {' union all '.join([
             f"select {i} as depth, '{k}' as kode"
@@ -121,7 +126,7 @@ class ReedCommands:
         )
         select kode_full, {', '.join(cols)} from t
         order by depth, id
-        '''
+        """
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
@@ -131,12 +136,12 @@ class ReedCommands:
         )
 
     def print_tree(self, pattern, **_):
-        [table, *args] = re.split(r'\s+', pattern)
+        [table, *args] = re.split(r"\s+", pattern)
         if len(args) == 0:
-            where = '(parent_id = 0)'
+            where = "(parent_id = 0)"
         else:
             root_id = int(args[0])
-            where = f'(id = {root_id})'
+            where = f"(id = {root_id})"
         query = f"""
         with recursive cte as (
             select id, parent_id,
@@ -173,10 +178,10 @@ class ReedCommands:
     def get_columns(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
             raise ValueError(r"Invalid pattern. Should be \gcol table")
-        q_where_schema = '(1=1)'
+        q_where_schema = "(1=1)"
         table = pattern.strip()
-        if '.' in table:
-            schema, table = table.split('.')
+        if "." in table:
+            schema, table = table.split(".")
             q_where_schema = f"table_schema = '{schema}'"
 
         query = f"""
@@ -197,12 +202,11 @@ class ReedCommands:
 
     def get_distinct_count(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN}(\s+{self.TABLE_PATTERN})+$", pattern):
-            raise ValueError(
-                r"Invalid pattern. Should be \dc table [columns]..")
-        [table, *columns] = re.split(r'\s+', pattern)
-        cols = ', '.join(columns)
-        query = f'select {
-            cols}, count(*) as cnt from {table} group by {cols} order by {cols}'
+            raise ValueError(r"Invalid pattern. Should be \dc table [columns]..")
+        [table, *columns] = re.split(r"\s+", pattern)
+        cols = ", ".join(columns)
+        query = f"select {
+            cols}, count(*) as cnt from {table} group by {cols} order by {cols}"
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
@@ -216,34 +220,67 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \sct table")
         table = pattern.strip()
         pge = self.pgcli.pgexecute
-        output = subprocess.run([
-            'pg_dump',
-            '-U', pge.user,
-            '-d', pge.dbname,
-            '-t', table,
-            '-h', pge.host,
-            *(['-p', pge.port] if pge.port else []),
-            '--schema-only',
-            '--no-comments',
-            '--no-owner',
-            '--no-acl',
-        ],
-            env={
-                'PGPASSWORD': pge.password,
-                **os.environ
-            },
+        output = subprocess.run(
+            [
+                "pg_dump",
+                "-U",
+                pge.user,
+                "-d",
+                pge.dbname,
+                "-t",
+                table,
+                "-h",
+                pge.host,
+                *(["-p", pge.port] if pge.port else []),
+                "--schema-only",
+                "--no-comments",
+                "--no-owner",
+                "--no-acl",
+            ],
+            env={"PGPASSWORD": pge.password, **os.environ},
             text=True,
             capture_output=True,
             check=True,
         )
-        subprocess.run(['less'], input=output.stdout, check=True, text=True)
-        return [(None, [], [], None, '', True, False)]
+
+        def extract_table_dump(dump: str):
+            lines = dump.strip().splitlines()
+            start_idx = None
+            assert lines[0] == "--"
+            assert lines[1] == "-- PostgreSQL database dump"
+            assert lines[2] == "--"
+
+            assert lines[-1] == "--"
+            assert lines[-2] == "-- PostgreSQL database dump complete"
+            assert lines[-3] == "--"
+
+            for i, line in enumerate(lines[3:-3]):
+                if line.startswith("-- Name: "):
+                    start_idx = 3 + i + 2
+                    break
+            if start_idx is None:
+                raise ValueError("Table not found in the dump.")
+
+            end_idx = -3
+            return "\n".join(lines[start_idx:end_idx])
+
+        table_dump = extract_table_dump(output.stdout).strip()
+        with open("/tmp/sct_query.sql", "w") as f:
+            f.write(table_dump)
+        cmd = "exec --no-startup-id rterm-float -e show-sql /tmp/sct_query.sql"
+        subprocess.run(
+            ["i3-msg", cmd],
+            check=True,
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+        return [(None, [], [], None, "", True, False)]
 
     def find_useful_columns(self, table_name: str):
-        useful_cols = ['id', 'parent_id', 'level',
-                       'kode', 'code', 'nama', 'name']
+        useful_cols = ["id", "parent_id", "level", "kode", "code", "nama", "name"]
         res = self.pgcli.pgexecute.run(
-            f"select column_name from information_schema.columns where table_name = '{table_name}'")
+            f"select column_name from information_schema.columns where table_name = '{table_name}'"
+        )
         for _, cur, *_ in res:
             rows = cur.fetchall()
         columns = [e[0] for e in rows]
