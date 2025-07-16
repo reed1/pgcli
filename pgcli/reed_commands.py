@@ -2,6 +2,8 @@ import re
 import os
 import subprocess
 
+from pgcli.packages.sqlcompletion import Schema, Table, Column
+
 
 class ReedCommands:
     TABLE_PATTERN = r'[\w_."]+'
@@ -285,3 +287,38 @@ class ReedCommands:
             rows = cur.fetchall()
         columns = [e[0] for e in rows]
         return [e for e in useful_cols if e in columns]
+
+
+def is_reed_command(cmd):
+    return cmd in ("\\do", "\\dd", "\\du", "\\dk", "\\tree", "\\gcol", "\\dc", "\\sct")
+
+
+def reed_suggestions(cmd, arg):
+    if not arg or not arg.strip():
+        # No argument yet, suggest tables
+        return (Schema(), Table(schema=None))
+    else:
+        # Check if we're still on the first argument (table name)
+        args = arg.split()
+        if len(args) == 1 and not arg.endswith(" "):
+            # Still typing the table name
+            if "." in args[0]:
+                # Schema-qualified table
+                schema = args[0].split(".")[0]
+                return (Table(schema=schema),)
+            else:
+                return (Schema(), Table(schema=None))
+        # For \dc command that needs column names after the table
+        elif cmd == "\\dc":
+            if len(args) >= 1 and (arg.endswith(" ") or len(args) > 1):
+                # Already have table name, suggest columns for grouping
+                from pgcli.packages.parseutils.tables import TableReference
+
+                table_name = args[0]
+                if "." in table_name:
+                    schema, table = table_name.split(".", 1)
+                    table_ref = TableReference(schema, table, None, False)
+                else:
+                    table_ref = TableReference(None, table_name, None, False)
+                return (Column(table_refs=(table_ref,), qualifiable=False),)
+    return None

@@ -241,6 +241,11 @@ def suggest_special(text):
     if cmd == "\\dn":
         return (Schema(),)
 
+    # Check Reed's custom commands
+    from pgcli.reed_commands import is_reed_command, reed_suggestions
+    if is_reed_command(cmd):
+        return reed_suggestions(cmd, arg)
+
     if arg:
         # Try to distinguish "\d name" from "\d schema.name"
         # Note that this will fail to obtain a schema name if wildcards are
