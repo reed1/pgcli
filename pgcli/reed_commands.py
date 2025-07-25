@@ -64,7 +64,7 @@ class ReedCommands:
         if not re.match(rf"^{self.TABLE_PATTERN} \d+$", pattern):
             raise ValueError("Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
-        q_cols = ", ".join(self.find_useful_columns(table))
+        q_cols = ", ".join(self.get_filtered_columns(table))
         query = f"select {q_cols} nama from {
             table} where parent_id = {parent_id}"
         on_error_resume = self.pgcli.on_error == "RESUME"
@@ -80,7 +80,7 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
         [table, row_id, *args] = re.split(r"\s+", pattern)
         table, row_id = pattern.split()
-        cols = self.find_useful_columns(table)
+        cols = self.get_filtered_columns(table)
         q_cols = ", ".join(cols)
         qc_cols = ", ".join([f"c.{x}" for x in cols])
         query = f"""
@@ -104,7 +104,7 @@ class ReedCommands:
         if not re.match(rf"^{self.TABLE_PATTERN} [\w.]+$", pattern):
             raise ValueError(r"Invalid pattern. Should be \dk table kode")
         [table, kode] = re.split(r"\s+", pattern)
-        cols = self.find_useful_columns(table)
+        cols = self.get_filtered_columns(table)
         kodes = kode.split(".")
         query = f"""
         with recursive td as (
@@ -278,15 +278,27 @@ class ReedCommands:
         )
         return [(None, [], [], None, "", True, False)]
 
-    def find_useful_columns(self, table_name: str):
-        useful_cols = ["id", "parent_id", "level", "kode", "code", "nama", "name"]
+    def get_filtered_columns(self, table_name: str):
         res = self.pgcli.pgexecute.run(
             f"select column_name from information_schema.columns where table_name = '{table_name}'"
         )
         for _, cur, *_ in res:
             rows = cur.fetchall()
         columns = [e[0] for e in rows]
-        return [e for e in useful_cols if e in columns]
+
+        if os.environ.get("USE_MINIMAL_COLUMN_SET", "0") == "1":
+            minimal_column_set = [
+                "id",
+                "parent_id",
+                "level",
+                "kode",
+                "code",
+                "nama",
+                "name",
+            ]
+            return [e for e in minimal_column_set if e in columns]
+        else:
+            return columns
 
 
 def is_reed_command(cmd):
