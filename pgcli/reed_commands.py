@@ -42,6 +42,9 @@ class ReedCommands:
         self.pgcli.pgspecial.register(
             self.show_create_table, "\\sct", "\\sct table", "Show create table."
         )
+        self.pgcli.pgspecial.register(
+            self.load_table, "\\lt", "\\lt '<path>' <table>", "Load data from file into table."
+        )
 
     def drill_one(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN}( \d+)?$", pattern):
@@ -300,15 +303,37 @@ class ReedCommands:
         else:
             return columns
 
+    def load_table(self, pattern, **_):
+        # Match file path in quotes and table name
+        match = re.match(r"^'([^']+)'\s+(\w+)$", pattern.strip())
+        if not match:
+            raise ValueError(r"Invalid pattern. Should be \\lt '<path>' <table>")
+
+        file_path = match.group(1)
+        table = match.group(2)
+
+        # PostgreSQL COPY command syntax
+        query = f"\\copy {table} from '{file_path}' with (format csv, header true, delimiter ',')"
+
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
 
 def is_reed_command(cmd):
-    return cmd in ("\\do", "\\dd", "\\du", "\\dk", "\\tree", "\\gcol", "\\dc", "\\sct")
+    return cmd in ("\\do", "\\dd", "\\du", "\\dk", "\\tree", "\\gcol", "\\dc", "\\sct", "\\lt")
 
 
 def reed_suggestions(cmd, arg):
     if not arg or not arg.strip():
         # No argument yet, suggest tables
         return (Schema(), Table(schema=None))
+    elif cmd == "\\lt":
+        return (Table(schema=None),)
     else:
         # Check if we're still on the first argument (table name)
         args = arg.split()
