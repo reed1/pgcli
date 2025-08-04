@@ -43,7 +43,16 @@ class ReedCommands:
             self.show_create_table, "\\sct", "\\sct table", "Show create table."
         )
         self.pgcli.pgspecial.register(
-            self.load_table, "\\lt", "\\lt '<path>' <table>", "Load data from file into table."
+            self.load_table,
+            "\\lt",
+            "\\lt '<path>' <table>",
+            "Load data from file into table.",
+        )
+        self.pgcli.pgspecial.register(
+            self.directed_format,
+            "\\df",
+            "\\df [recipe]",
+            "Directed format - set pager and table format",
         )
 
     def drill_one(self, pattern, **_):
@@ -323,9 +332,34 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
+    def directed_format(self, pattern, **_):
+        arg = pattern.strip().upper() if pattern else "A"
+
+        if arg == "A":
+            # Recipe A: visidata-db pager with CSV format
+            self.pgcli.pgspecial.pset_pager("always")
+            return self.pgcli.pgexecute.run("\\T csv", self.pgcli.pgspecial)
+        elif arg == "C":
+            # Recipe C: no pager with ASCII format
+            self.pgcli.pgspecial.pset_pager("off")
+            return self.pgcli.pgexecute.run("\\T ascii", self.pgcli.pgspecial)
+        else:
+            raise ValueError(f"Unknown recipe '{arg}'. Use A or C.")
+
 
 def is_reed_command(cmd):
-    return cmd in ("\\do", "\\dd", "\\du", "\\dk", "\\tree", "\\gcol", "\\dc", "\\sct", "\\lt")
+    return cmd in (
+        "\\do",
+        "\\dd",
+        "\\du",
+        "\\dk",
+        "\\tree",
+        "\\gcol",
+        "\\dc",
+        "\\sct",
+        "\\lt",
+        "\\df",
+    )
 
 
 def reed_suggestions(cmd, arg):
