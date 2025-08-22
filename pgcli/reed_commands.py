@@ -13,7 +13,10 @@ class ReedCommands:
 
     def register_special_commands(self) -> None:
         self.pgcli.pgspecial.register(
-            self.drill_one, "\\do", "\\do table [id]", "Get one row from table."
+            self.drill_one,
+            "\\do",
+            "\\do table [id|order by ...]",
+            "Get rows from table with optional id or order clause.",
         )
         self.pgcli.pgspecial.register(
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
@@ -56,14 +59,30 @@ class ReedCommands:
         )
 
     def drill_one(self, pattern, **_):
-        if not re.match(rf"^{self.TABLE_PATTERN}( \d+)?$", pattern):
-            raise ValueError(r"Invalid pattern. Should be \do table [id]")
+        pattern = pattern.strip()
         [table, *args] = re.split(r"\s+", pattern)
+
+        # Validate table name
+        if not re.match(rf"^{self.TABLE_PATTERN}$", table):
+            raise ValueError(r"Invalid table name")
+
         if len(args) == 0:
+            # \do table
             query = f"select * from {table} limit 100"
-        elif len(args) == 1:
+        elif len(args) == 1 and args[0].isdigit():
+            # \do table 123
             row_id = int(args[0])
             query = f"select * from {table} where id = {row_id}"
+        else:
+            # \do table order by id [limit 50]
+            rest_of_query = " ".join(args)
+
+            # Check if there's already a limit clause
+            if "limit" in rest_of_query.lower():
+                query = f"select * from {table} {rest_of_query}"
+            else:
+                query = f"select * from {table} {rest_of_query} limit 100"
+
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
