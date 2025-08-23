@@ -4,6 +4,69 @@ import subprocess
 
 from pgcli.packages.sqlcompletion import Schema, Table, Column
 
+RVISIDATA_DB_LAST_REPLY_FILE = "/tmp/rlocal/visidata/last-reply"
+
+# Track the last tabular command context
+_last_tabular_command_table = None
+
+
+def reed_tabular_command(func):
+    """Decorator to mark commands as reed tabular commands."""
+
+    # Wrap the function to track when it's called
+    def wrapper(*args, **kwargs):
+        global _last_tabular_command_table
+
+        # Clean up the reply file
+        if os.path.exists(RVISIDATA_DB_LAST_REPLY_FILE):
+            os.remove(RVISIDATA_DB_LAST_REPLY_FILE)
+
+        # Extract table and id from arguments for tracking
+        pattern = None
+        if kwargs.get("pattern"):
+            pattern = kwargs["pattern"]
+        elif len(args) > 1:
+            pattern = args[1]
+
+        if pattern:
+            arg_parts = re.split(r"\s+", pattern.strip())
+            if len(arg_parts) >= 1:
+                _last_tabular_command_table = arg_parts[0]
+
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def on_pager_close():
+    """Called after the pager closes. Returns pending command if there is one."""
+    global _last_tabular_command_table
+
+    if not os.path.exists(RVISIDATA_DB_LAST_REPLY_FILE):
+        return None
+
+    with open(RVISIDATA_DB_LAST_REPLY_FILE, "r") as f:
+        last_reply = f.read().strip()
+
+    if not last_reply or not _last_tabular_command_table:
+        return None
+
+    # Parse the reply format
+    if last_reply.startswith("drill_up."):
+        # Extract ID from drill_up.<id> format
+        parts = last_reply.split(".")
+        new_id = parts[1]
+        command_to_execute = f"\\du {_last_tabular_command_table} {new_id}"
+        return command_to_execute
+    elif last_reply.startswith("drill_down."):
+        # Extract ID from drill_down.<id> format
+        parts = last_reply.split(".")
+        new_id = parts[1]
+        command_to_execute = f"\\dd {_last_tabular_command_table} {new_id}"
+        return command_to_execute
+
+    return None
+
 
 class ReedCommands:
     TABLE_PATTERN = r'[\w_."]+'
@@ -58,6 +121,7 @@ class ReedCommands:
             "Directed format - set pager and table format",
         )
 
+    @reed_tabular_command
     def drill_one(self, pattern, **_):
         pattern = pattern.strip()
         [table, *args] = re.split(r"\s+", pattern)
@@ -91,6 +155,7 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
+    @reed_tabular_command
     def drill_down(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+$", pattern):
             raise ValueError("Invalid pattern. Should be \\\\dd <table> <parent_id>")
@@ -106,6 +171,7 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
+    @reed_tabular_command
     def drill_up(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
             raise ValueError(r"Invalid pattern. Should be \du table row_id")
@@ -131,6 +197,7 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
+    @reed_tabular_command
     def drill_down_kode(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} [\w.]+$", pattern):
             raise ValueError(r"Invalid pattern. Should be \dk table kode")
@@ -411,4 +478,4 @@ def reed_suggestions(cmd, arg):
                 else:
                     table_ref = TableReference(None, table_name, None, False)
                 return (Column(table_refs=(table_ref,), qualifiable=False),)
-    return None
+    return []

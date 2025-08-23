@@ -192,6 +192,7 @@ class PGCli:
         self.pgexecute = pgexecute
         self.dsn_alias = None
         self.watch_command = None
+        self._pending_command_from_pager = None
 
         # Load config.
         c = self.config = get_config(pgclirc_file)
@@ -928,14 +929,19 @@ class PGCli:
 
         try:
             while True:
-                try:
-                    text = self.prompt_app.prompt()
-                except KeyboardInterrupt:
-                    continue
-                except EOFError:
-                    if not self._check_ongoing_transaction_and_allow_quitting():
+                # Check for pending command from pager
+                if self._pending_command_from_pager:
+                    text = self._pending_command_from_pager
+                    self._pending_command_from_pager = None
+                else:
+                    try:
+                        text = self.prompt_app.prompt()
+                    except KeyboardInterrupt:
                         continue
-                    raise
+                    except EOFError:
+                        if not self._check_ongoing_transaction_and_allow_quitting():
+                            continue
+                        raise
 
                 try:
                     text = self.handle_editor_command(text)
@@ -1298,6 +1304,13 @@ class PGCli:
                 click.echo(text, color=color)
         else:
             click.echo_via_pager(text, color)
+
+            # Call on_pager_close from reed_commands module
+            from .reed_commands import on_pager_close
+            pending_cmd = on_pager_close()
+            if pending_cmd:
+                # Schedule the command to be executed in the next iteration
+                self._pending_command_from_pager = pending_cmd
 
 
 @click.command()
