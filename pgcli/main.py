@@ -72,6 +72,7 @@ from .packages.formatter.sqlformatter import register_new_formatter
 from .packages.prompt_utils import confirm, confirm_destructive_query
 from .packages.parseutils import is_destructive
 from .packages.parseutils import parse_destructive_warning
+from .packages.parseutils import UnsafeUpdateError, validate_update_has_where
 from .__init__ import __version__
 from .reed_commands import ReedCommands
 
@@ -478,6 +479,11 @@ class PGCli:
         except OSError as e:
             return [(None, None, None, str(e), "", False, True)]
 
+        try:
+            validate_update_has_where(query)
+        except UnsafeUpdateError as e:
+            return [(None, None, None, str(e), "", False, True)]
+
         if self.destructive_warning:
             if (
                 self.destructive_statements_require_transaction
@@ -780,6 +786,8 @@ class PGCli:
         query = MetaQuery(query=text, successful=False)
 
         try:
+            validate_update_has_where(text)
+
             if self.destructive_warning:
                 if (
                     self.destructive_statements_require_transaction

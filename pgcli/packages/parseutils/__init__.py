@@ -1,6 +1,10 @@
 import sqlparse
 
 
+class UnsafeUpdateError(Exception):
+    pass
+
+
 BASE_KEYWORDS = [
     "drop",
     "shutdown",
@@ -54,3 +58,15 @@ def parse_destructive_warning(warning_level):
         "off": [],
         "": [],
     }.get(warning_level[0], warning_level)
+
+
+def validate_update_has_where(queries):
+    """Raises UnsafeUpdateError if any UPDATE query lacks a WHERE clause."""
+    for query in sqlparse.split(queries):
+        if query:
+            formatted_sql = sqlparse.format(query.lower(), strip_comments=True).strip()
+            if query_is_unconditional_update(formatted_sql):
+                raise UnsafeUpdateError(
+                    "UPDATE queries without WHERE clause are not allowed. "
+                    "This prevents accidentally updating all rows in a table."
+                )
