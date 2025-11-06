@@ -85,6 +85,9 @@ class ReedCommands:
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
         )
         self.pgcli.pgspecial.register(
+            self.drill_down_recursive, "\\ddr", "\\ddr table row_id [where ...]", "Drill down recursive."
+        )
+        self.pgcli.pgspecial.register(
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
         )
         self.pgcli.pgspecial.register(
@@ -188,6 +191,37 @@ class ReedCommands:
             inner join cte on c.id = cte.parent_id
         )
         select {q_cols} from cte {' '.join(args)} order by depth desc
+        """
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
+    @reed_tabular_command
+    def drill_down_recursive(self, pattern, **_):
+        if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \ddr table row_id [where ...]")
+        [table, row_id, *args] = re.split(r"\s+", pattern)
+        cols = self.get_filtered_columns(table)
+        extra = " ".join(args)
+        q_where = "(1=1)"
+        if extra.startswith("where "):
+            q_where = extra[6:]
+        q_cols = ", ".join(cols)
+        qc_cols = ", ".join([f"c.{col}" for col in cols])
+        query = f"""
+        with recursive cte as (
+            select {q_cols}, 0 as depth from {table} where id = {row_id}
+            union all
+            select {qc_cols}, cte.depth + 1
+            from {table} as c
+            inner join cte on c.parent_id = cte.id
+            where {q_where}
+        )
+        select depth, {q_cols} from cte order by depth, id
         """
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
@@ -437,6 +471,7 @@ def is_reed_command(cmd):
     return cmd in (
         "\\do",
         "\\dd",
+        "\\ddr",
         "\\du",
         "\\dk",
         "\\tree",

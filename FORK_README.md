@@ -8,6 +8,9 @@ Commands for working with tables that have parent-child relationships (using `id
 
 - **`\du [table] [id]`** - Drill up: Recursively traverse up the hierarchy from a given row
 - **`\dd [table] [id]`** - Drill down: Query immediate children of a given row
+- **`\ddr [table] [id] [where ...]`** - Drill down recursive: Recursively traverse down the hierarchy from a given row
+  - `\ddr categories 1` - Get all descendants of row with id = 1
+  - `\ddr categories 1 where level < 3` - Get descendants with additional WHERE conditions
 - **`\dk [table] [kode]`** - Drill down by kode: Navigate hierarchical data using dot-separated kode paths (e.g., "1.2.3")
 - **`\do [table] [id|order by...]`** - Drill one: Get single row by ID, or query with ORDER BY and optional LIMIT
   - `\do users` - Get all rows with LIMIT 100
