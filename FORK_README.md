@@ -2,7 +2,13 @@
 
 This is a customized fork of [pgcli](https://github.com/dbcli/pgcli) with enhanced features for database exploration, hierarchical data navigation, and improved workflow integration.
 
-## Hierarchical Data Navigation
+---
+
+## Shared Features
+
+> **⚠️ NOTE**: This section is identical in both the [mycli fork](https://github.com/dbcli/mycli) and [pgcli fork](https://github.com/dbcli/pgcli). When updating features here, please keep both README files synchronized.
+
+### Hierarchical Data Navigation
 
 Commands for working with tables that have parent-child relationships (using `id`/`parent_id` columns):
 
@@ -11,7 +17,7 @@ Commands for working with tables that have parent-child relationships (using `id
 - **`\ddr [table] [id] [where ...]`** - Drill down recursive: Recursively traverse down the hierarchy from a given row
   - `\ddr categories 1` - Get all descendants of row with id = 1
   - `\ddr categories 1 where level < 3` - Get descendants with additional WHERE conditions
-- **`\dk [table] [kode]`** - Drill down by kode: Navigate hierarchical data using dot-separated kode paths (e.g., "1.2.3")
+- **`\dk [table] [kode]`** - Drill down by kode: Navigate hierarchical data using dot-separated kode paths (e.g., "01.02.03")
 - **`\do [table] [id|order by...]`** - Drill one: Get single row by ID, or query with ORDER BY and optional LIMIT
   - `\do users` - Get all rows with LIMIT 100
   - `\do users 123` - Get row with id = 123
@@ -19,85 +25,102 @@ Commands for working with tables that have parent-child relationships (using `id
   - `\do users order by created_at desc limit 50` - Custom limit
 - **`\tree [table] [root_id]`** - Display hierarchical tree structure with visual indentation
 
-## Schema and Table Introspection
+### Schema and Table Introspection
 
 - **`\gcol [table]`** - Get columns list for a table with data types from information_schema
-  - Supports schema-qualified names: `\gcol schema.table`
 - **`\dc [table] [columns]`** - Get distinct count grouped by specified columns
   - Example: `\dc users country city` shows count of users per country/city combination
-- **`\sct [table]`** - Show create table in external terminal window (uses pg_dump)
+- **`\sct [table]`** - Show create table in external terminal window
   - Displays complete DDL in floating i3wm terminal with syntax highlighting
 
-## Data Manipulation
+### Data Manipulation
 
-- **`\lt '<path>' [table]`** - Load CSV data from file into table using PostgreSQL's `\copy`
+- **`\lt '<path>' [table]`** - Load CSV data from file into table
   - File path must be in single quotes
   - CSV format with header row expected
   - Example: `\lt '/tmp/data.csv' users`
 
-## Output Formatting
+### Output Formatting
 
 - **`\df [recipe]`** - Directed format: Set pager and output format recipes
   - Recipe A: visidata-db pager with CSV format (default)
   - Recipe C: no pager with ASCII format
 
-## Custom Key Bindings
+### Custom Key Bindings
 
 - **`Ctrl-E`** - Edit current input in external editor
 - **`Ctrl-B`** - Interactive schema selector using rofi
-  - Lists all schemas (excluding pg_* and information_schema)
   - Custom sorting: alphabetical for letters, reverse numerical for digits (recent years first)
   - Persists last selected schema to `~/.cache/rlocal/db/{DBCONFIG_ID}.last_schema`
-  - Auto-generates and executes `SET search_path TO` statement
+  - Auto-generates and executes schema switch statement
 
-## Connection Management
+### Connection Management
 
-- **Connection keepalive thread** - Background daemon that pings PostgreSQL connection every 30 seconds to prevent timeout during long idle periods
-- **`-s/--search-path`** - Command-line argument to set initial search_path on connection
-  - Example: `pgcli -s myschema mydb`
-- **Prompt search_path display** - Use `\s` placeholder in prompt format to show current search_path
-  - Automatically filters out pg_catalog from display
-  - Shows comma-separated list of schemas
+- **Connection keepalive thread** - Background daemon that pings database connection every 30 seconds to prevent timeout during long idle periods
 
-## Safety Features
+### Safety Features
 
 - **UPDATE query validation** - All UPDATE queries must have a WHERE clause
-  - Throws `UnsafeUpdateError` exception if WHERE clause is missing
+  - Throws `UpdateWithoutWhereError` exception if WHERE clause is missing
   - Prevents accidental mass updates affecting all table rows
 
-## Pager Integration
+### Pager Integration
 
 - **Command scheduling from pager** - Integration with visidata-db for interactive drill operations
   - Tracks last tabular command context using `@reed_tabular_command` decorator
   - Reads reply file at `/tmp/rlocal/visidata/last-reply` after pager closes
   - Supports `drill_up.<id>` and `drill_down.<id>` reply formats
   - Auto-executes corresponding `\du` or `\dd` commands based on pager interaction
-- **RVISIDATA integration** - Conditionally skips visidata pager for non-data queries
-  - Sets `RVISIDATA_SKIP` environment variable based on query properties
-  - Skips for: errors, metadata changes, database changes, search path changes, data mutations
 
-## Autocompletion
+### Autocompletion
 
 Custom commands support intelligent autocompletion:
 
 - Table name completion for all drill commands
-- Schema-qualified table name support
 - Column name completion for `\dc` command after table name
-- Uses existing pgcli completion infrastructure (Schema, Table, Column classes)
+- Uses existing CLI completion infrastructure
 
-## Environment Variables
+### Environment Variables
 
 - **`USE_MINIMAL_COLUMN_SET`** - When set to "1", filters columns to minimal set: `id`, `parent_id`, `level`, `kode`, `code`, `nama`, `name`
 - **`PAGER`** - Can be set to "visidata-db" for custom tabular data viewing
 - **`DBCONFIG_ID`** - Used for schema persistence cache file naming
-- **`RVISIDATA_SKIP`** - Set automatically to skip visidata for non-data queries
 
-## External Tool Integration
+### External Tool Integration
 
 This fork integrates with several external tools for enhanced workflows:
 
 - **rofi** - Schema selection menu
-- **i3-msg** - Window management integration for \sct command
-- **pg_dump** - Table DDL extraction for \sct command
+- **i3-msg** - Window management integration for `\sct` command
 - **visidata-db** - Custom pager for tabular data with interactive drill operations
+
+---
+
+## PostgreSQL-Specific Features
+
+### Schema Support
+
+- **`\gcol [table]`** - Supports schema-qualified names: `\gcol schema.table`
+- **`Ctrl-B`** schema selector:
+  - Lists all schemas (excluding pg_* and information_schema)
+  - Auto-generates and executes `SET search_path TO` statement
+- **`-s/--search-path`** - Command-line argument to set initial search_path on connection
+  - Example: `pgcli -s myschema mydb`
+- **Prompt search_path display** - Use `\s` placeholder in prompt format to show current search_path
+  - Automatically filters out pg_catalog from display
+  - Shows comma-separated list of schemas
+
+### Autocompletion
+
+- **Schema-qualified table name support** - Completion works with schema.table syntax
+- Uses pgcli completion infrastructure (Schema, Table, Column classes)
+
+### Implementation Details
+
+- **`\lt`** - Uses PostgreSQL's `\copy` command for CSV loading
+- **`\sct`** - Uses `pg_dump` to extract table DDL
+
+### Additional Tools
+
+- **pg_dump** - Table DDL extraction
 - **less** - Fallback pager for text content
