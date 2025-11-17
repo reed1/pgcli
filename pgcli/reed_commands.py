@@ -85,7 +85,10 @@ class ReedCommands:
             self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
         )
         self.pgcli.pgspecial.register(
-            self.drill_down_recursive, "\\ddr", "\\ddr table row_id [where ...]", "Drill down recursive."
+            self.drill_down_recursive,
+            "\\ddr",
+            "\\ddr table row_id [where ...]",
+            "Drill down recursive.",
         )
         self.pgcli.pgspecial.register(
             self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
@@ -110,6 +113,12 @@ class ReedCommands:
         )
         self.pgcli.pgspecial.register(
             self.show_create_table, "\\sct", "\\sct table", "Show create table."
+        )
+        self.pgcli.pgspecial.register(
+            self.show_create_table_dump,
+            "\\sctd",
+            "\\sctd table",
+            "Show create table (using pg_dump).",
         )
         self.pgcli.pgspecial.register(
             self.load_table,
@@ -202,7 +211,9 @@ class ReedCommands:
     @reed_tabular_command
     def drill_down_recursive(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
-            raise ValueError(r"Invalid pattern. Should be \ddr table row_id [where ...]")
+            raise ValueError(
+                r"Invalid pattern. Should be \ddr table row_id [where ...]"
+            )
         [table, row_id, *args] = re.split(r"\s+", pattern)
         cols = self.get_filtered_columns(table)
         extra = " ".join(args)
@@ -351,6 +362,86 @@ class ReedCommands:
         if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
             raise ValueError(r"Invalid pattern. Should be \sct table")
         table = pattern.strip()
+
+        # Run \d table command
+        query = f"\\d {table}"
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        result = self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
+        # Extract rows from result (special commands return rows directly, not cursor)
+        rows = None
+        for _, cur_or_rows, *_ in result:
+            if hasattr(cur_or_rows, "fetchall"):
+                rows = cur_or_rows.fetchall()
+            else:
+                rows = cur_or_rows
+            break
+
+        if not rows:
+            raise ValueError(f"No data returned for table {table}")
+
+        # Parse the output to generate CREATE TABLE statement
+        create_sql = self._parse_describe_output(table, rows)
+
+        with open("/tmp/sct_query.sql", "w") as f:
+            f.write(create_sql)
+        subprocess.run(
+            [
+                "kitty",
+                "@",
+                "launch",
+                "--type=overlay",
+                "show-sql",
+                "/tmp/sct_query.sql",
+            ],
+            check=True,
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+        return [(None, [], [], None, "", True, False)]
+
+    def _parse_describe_output(self, table, rows):
+        """Parse \\d table output and generate CREATE TABLE statement."""
+        lines = []
+
+        for row in rows:
+            if len(row) < 1:
+                continue
+
+            first_col = str(row[0]).strip()
+
+            # Stop at "Indexes:" section
+            if first_col == "Indexes:":
+                break
+
+            # Parse column definition (skip header row)
+            if first_col and first_col != "Column":
+                col_name = first_col
+                col_type = str(row[1]).strip() if len(row) > 1 else ""
+                col_modifiers = str(row[2]).strip() if len(row) > 2 else ""
+
+                # Build column definition
+                col_def = f"  {col_name} {col_type}"
+                if col_modifiers:
+                    col_def += f" {col_modifiers}"
+                lines.append(col_def)
+
+        # Build CREATE TABLE statement
+        create_table = f"CREATE TABLE {table} (\n"
+        create_table += ",\n".join(lines)
+        create_table += "\n);"
+
+        return create_table
+
+    def show_create_table_dump(self, pattern, **_):
+        if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \sctd table")
+        table = pattern.strip()
         pge = self.pgcli.pgexecute
         output = subprocess.run(
             [
@@ -377,26 +468,31 @@ class ReedCommands:
 
         def extract_table_dump(dump: str):
             # Split by double newlines to get blocks
-            blocks = dump.split('\n\n')
+            blocks = dump.split("\n\n")
 
             # Filter blocks that start with CREATE (after stripping)
             create_blocks = [
-                block.strip()
-                for block in blocks
-                if block.strip().startswith('CREATE')
+                block.strip() for block in blocks if block.strip().startswith("CREATE")
             ]
 
             if not create_blocks:
                 raise ValueError("No CREATE statements found in the dump.")
 
             # Join blocks back with double newline
-            return '\n\n'.join(create_blocks)
+            return "\n\n".join(create_blocks)
 
         table_dump = extract_table_dump(output.stdout).strip()
         with open("/tmp/sct_query.sql", "w") as f:
             f.write(table_dump)
         subprocess.run(
-            ["kitty", "@", "launch", "--type=overlay", "show-sql", "/tmp/sct_query.sql"],
+            [
+                "kitty",
+                "@",
+                "launch",
+                "--type=overlay",
+                "show-sql",
+                "/tmp/sct_query.sql",
+            ],
             check=True,
             stderr=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -471,6 +567,7 @@ def is_reed_command(cmd):
         "\\gcol",
         "\\dc",
         "\\sct",
+        "\\sctd",
         "\\lt",
         "\\df",
     )
