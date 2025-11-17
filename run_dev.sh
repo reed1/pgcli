@@ -10,7 +10,7 @@ cat <<EOF > "$temp_dir/pgcli"
 #!/bin/bash
 
 cd "$script_dir"
-python -m pgcli.main "\$@"
+uv run pgcli "\$@"
 EOF
 
 chmod +x "$temp_dir/pgcli"

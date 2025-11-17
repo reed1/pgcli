@@ -401,9 +401,8 @@ class ReedCommands:
         table_dump = extract_table_dump(output.stdout).strip()
         with open("/tmp/sct_query.sql", "w") as f:
             f.write(table_dump)
-        cmd = "exec --no-startup-id rterm-float -e show-sql /tmp/sct_query.sql"
         subprocess.run(
-            ["i3-msg", cmd],
+            ["kitty", "@", "launch", "--type=overlay", "show-sql", "/tmp/sct_query.sql"],
             check=True,
             stderr=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
