@@ -378,25 +378,21 @@ class ReedCommands:
         )
 
         def extract_table_dump(dump: str):
-            lines = dump.strip().splitlines()
-            start_idx = None
-            assert lines[0] == "--"
-            assert lines[1] == "-- PostgreSQL database dump"
-            assert lines[2] == "--"
+            # Split by double newlines to get blocks
+            blocks = dump.split('\n\n')
 
-            assert lines[-1] == "--"
-            assert lines[-2] == "-- PostgreSQL database dump complete"
-            assert lines[-3] == "--"
+            # Filter blocks that start with CREATE (after stripping)
+            create_blocks = [
+                block.strip()
+                for block in blocks
+                if block.strip().startswith('CREATE')
+            ]
 
-            for i, line in enumerate(lines[3:-3]):
-                if line.startswith("-- Name: "):
-                    start_idx = 3 + i + 2
-                    break
-            if start_idx is None:
-                raise ValueError("Table not found in the dump.")
+            if not create_blocks:
+                raise ValueError("No CREATE statements found in the dump.")
 
-            end_idx = -3
-            return "\n".join(lines[start_idx:end_idx])
+            # Join blocks back with double newline
+            return '\n\n'.join(create_blocks)
 
         table_dump = extract_table_dump(output.stdout).strip()
         with open("/tmp/sct_query.sql", "w") as f:
