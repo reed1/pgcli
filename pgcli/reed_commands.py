@@ -164,8 +164,7 @@ class ReedCommands:
             raise ValueError("Invalid pattern. Should be \\\\dd <table> <parent_id>")
         table, parent_id = pattern.split()
         q_cols = ", ".join(self.get_filtered_columns(table))
-        query = f"select {q_cols} nama from {
-            table} where parent_id = {parent_id}"
+        query = f"select {q_cols} from {table} where parent_id = {parent_id}"
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
@@ -339,8 +338,7 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \dc table [columns]..")
         [table, *columns] = re.split(r"\s+", pattern)
         cols = ", ".join(columns)
-        query = f"select {
-            cols}, count(*) as cnt from {table} group by {cols} order by {cols}"
+        query = f"select {cols}, count(*) as cnt from {table} group by {cols} order by {cols}"
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
