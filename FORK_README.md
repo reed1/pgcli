@@ -118,7 +118,10 @@ This fork integrates with several external tools for enhanced workflows:
 ### Implementation Details
 
 - **`\lt`** - Uses PostgreSQL's `\copy` command for CSV loading
-- **`\sct`** - Uses `pg_dump` to extract table DDL
+- **`\sct`** - Uses `\d` output for fast table structure display
+- **`\sctd`** - Uses `pg_dump` to extract complete table DDL
+  - Alternative to `\sct` that provides full DDL including constraints, indexes, and triggers
+  - Slower but more comprehensive than `\sct`
 
 ### Additional Tools
 
