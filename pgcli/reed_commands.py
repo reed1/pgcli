@@ -572,15 +572,18 @@ class ReedCommands:
         if not re.match(rf"^{self.TABLE_PATTERN}(\s+{self.TABLE_PATTERN})*$", pattern):
             raise ValueError(r"Invalid pattern. Should be \tc table [table...]")
         tables = re.split(r"\s+", pattern.strip())
-        queries = "; ".join([f"truncate table {table} restart identity" for table in tables])
 
         on_error_resume = self.pgcli.on_error == "RESUME"
-        return self.pgcli.pgexecute.run(
-            queries,
-            self.pgcli.pgspecial,
-            on_error_resume=on_error_resume,
-            explain_mode=self.pgcli.explain_mode,
-        )
+        for table in tables:
+            query = f"truncate table {table} restart identity"
+            self.pgcli.pgexecute.run(
+                query,
+                self.pgcli.pgspecial,
+                on_error_resume=on_error_resume,
+                explain_mode=self.pgcli.explain_mode,
+            )
+
+        return [(None, [], [], None, f"Truncated {len(tables)} table(s) successfully", True, False)]
 
     def directed_format(self, pattern, **_):
         arg = pattern.strip().upper() if pattern else "A"
