@@ -127,6 +127,12 @@ class ReedCommands:
             "Load data from file into table.",
         )
         self.pgcli.pgspecial.register(
+            self.truncate_table,
+            "\\tc",
+            "\\tc [table]",
+            "Truncate table with restart identity.",
+        )
+        self.pgcli.pgspecial.register(
             self.directed_format,
             "\\df",
             "\\df [recipe]",
@@ -363,8 +369,37 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \sct table")
         table = pattern.strip()
 
-        # Run \d table command
-        query = f"\\d {table}"
+        # Query both columns and indexes in a single query
+        query = f"""
+        SELECT 'column' as type,
+               c.column_name as name,
+               c.data_type ||
+               CASE
+                   WHEN c.character_maximum_length IS NOT NULL
+                   THEN '(' || c.character_maximum_length || ')'
+                   WHEN c.numeric_precision IS NOT NULL
+                   THEN '(' || c.numeric_precision ||
+                        CASE WHEN c.numeric_scale IS NOT NULL
+                        THEN ',' || c.numeric_scale ELSE '' END || ')'
+                   ELSE ''
+               END ||
+               CASE WHEN c.is_nullable = 'NO' THEN ' not null' ELSE '' END ||
+               CASE WHEN c.column_default IS NOT NULL
+                    THEN ' default ' || c.column_default ELSE '' END
+               as definition,
+               c.ordinal_position as sort_order
+        FROM information_schema.columns c
+        WHERE c.table_name = '{table}'
+        UNION ALL
+        SELECT 'index' as type,
+               i.indexname as name,
+               i.indexdef as definition,
+               0 as sort_order
+        FROM pg_indexes i
+        WHERE i.tablename = '{table}'
+        ORDER BY sort_order, name
+        """
+
         on_error_resume = self.pgcli.on_error == "RESUME"
         result = self.pgcli.pgexecute.run(
             query,
@@ -373,20 +408,18 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
-        # Extract rows from result (special commands return rows directly, not cursor)
+        # Extract rows from result
         rows = None
-        for _, cur_or_rows, *_ in result:
-            if hasattr(cur_or_rows, "fetchall"):
-                rows = cur_or_rows.fetchall()
-            else:
-                rows = cur_or_rows
+        for _, cur, *_ in result:
+            if hasattr(cur, "fetchall"):
+                rows = cur.fetchall()
             break
 
         if not rows:
             raise ValueError(f"No data returned for table {table}")
 
-        # Parse the output to generate CREATE TABLE statement
-        create_sql = self._parse_describe_output(table, rows)
+        # Parse the combined result
+        create_sql = self._parse_combined_output(table, rows)
 
         with open("/tmp/sct_query.sql", "w") as f:
             f.write(create_sql)
@@ -405,36 +438,30 @@ class ReedCommands:
         )
         return [(None, [], [], None, "", True, False)]
 
-    def _parse_describe_output(self, table, rows):
-        """Parse \\d table output and generate CREATE TABLE statement."""
-        lines = []
+    def _parse_combined_output(self, table, rows):
+        """Parse combined column and index output to generate CREATE TABLE statement."""
+        column_lines = []
+        index_lines = []
 
         for row in rows:
-            if len(row) < 1:
-                continue
+            row_type = row[0]
+            name = row[1]
+            definition = row[2]
 
-            first_col = str(row[0]).strip()
-
-            # Stop at "Indexes:" section
-            if first_col == "Indexes:":
-                break
-
-            # Parse column definition (skip header row)
-            if first_col and first_col != "Column":
-                col_name = first_col
-                col_type = str(row[1]).strip() if len(row) > 1 else ""
-                col_modifiers = str(row[2]).strip() if len(row) > 2 else ""
-
-                # Build column definition
-                col_def = f"  {col_name} {col_type}"
-                if col_modifiers:
-                    col_def += f" {col_modifiers}"
-                lines.append(col_def)
+            if row_type == 'column':
+                column_lines.append(f"  {name} {definition}")
+            elif row_type == 'index':
+                index_lines.append(f"{definition};")
 
         # Build CREATE TABLE statement
         create_table = f"CREATE TABLE {table} (\n"
-        create_table += ",\n".join(lines)
+        create_table += ",\n".join(column_lines)
         create_table += "\n);"
+
+        # Add index statements
+        if index_lines:
+            create_table += "\n\n"
+            create_table += "\n".join(index_lines)
 
         return create_table
 
@@ -541,6 +568,20 @@ class ReedCommands:
             explain_mode=self.pgcli.explain_mode,
         )
 
+    def truncate_table(self, pattern, **_):
+        if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
+            raise ValueError(r"Invalid pattern. Should be \tc table")
+        table = pattern.strip()
+        query = f"truncate table {table} restart identity"
+
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
     def directed_format(self, pattern, **_):
         arg = pattern.strip().upper() if pattern else "A"
 
@@ -569,15 +610,20 @@ def is_reed_command(cmd):
         "\\sct",
         "\\sctd",
         "\\lt",
+        "\\tc",
         "\\df",
     )
 
 
 def reed_suggestions(cmd, arg):
     if not arg or not arg.strip():
-        # No argument yet, suggest tables
-        return (Schema(), Table(schema=None))
-    elif cmd == "\\lt":
+        # No argument yet, suggest tables for most commands
+        if cmd == "\\df":
+            # For directed format, suggest recipe options - but return nothing since they're just letters
+            return ()
+        else:
+            return (Schema(), Table(schema=None))
+    elif cmd in ("\\lt", "\\tc"):
         return (Table(schema=None),)
     else:
         # Check if we're still on the first argument (table name)

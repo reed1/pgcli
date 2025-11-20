@@ -39,6 +39,7 @@ Commands for working with tables that have parent-child relationships (using `id
   - File path must be in single quotes
   - CSV format with header row expected
   - Example: `\lt '/tmp/data.csv' users`
+- **`\tc [table]`** - Truncate table
 
 ### Output Formatting
 
@@ -118,9 +119,11 @@ This fork integrates with several external tools for enhanced workflows:
 ### Implementation Details
 
 - **`\lt`** - Uses PostgreSQL's `\copy` command for CSV loading
-- **`\sct`** - Uses `\d` output for fast table structure display
+- **`\sct`** - Queries `information_schema.columns` and `pg_indexes` for fast table structure display
+  - Generates CREATE TABLE statement with column definitions and CREATE INDEX statements
+  - Single query execution for optimal performance
 - **`\sctd`** - Uses `pg_dump` to extract complete table DDL
-  - Alternative to `\sct` that provides full DDL including constraints, indexes, and triggers
+  - Alternative to `\sct` that provides full DDL including constraints, triggers, and additional metadata
   - Slower but more comprehensive than `\sct`
 
 ### Additional Tools
