@@ -7,51 +7,60 @@ from pgcli.packages.sqlcompletion import Schema, Table, Column
 RVISIDATA_DB_LAST_REPLY_FILE = "/tmp/rlocal/visidata/last-reply"
 
 
-def _format_tree_rows(rows):
-    """Format tree rows with box-drawing characters."""
+def _build_and_format_tree(rows):
+    """Build tree structure from rows and format with box-drawing characters."""
     if not rows:
         return rows
 
+    # Build the tree structure: {parent_level: [(level, count), ...]}
+    children_map = {}
+    depth_map = {}  # {(parent_level, level): depth}
+
+    for depth, parent_level, level, cnt in rows:
+        key = parent_level if parent_level else None
+        if key not in children_map:
+            children_map[key] = []
+        children_map[key].append((level, cnt))
+        depth_map[(parent_level, level)] = depth
+
+    # Traverse and format the tree
     result = []
-    # Track which depth levels have more siblings coming
-    has_more_at_depth = {}
 
-    for i, row in enumerate(rows):
-        depth, level, cnt = row
+    def traverse(parent_level, prefix_parts):
+        """Recursively traverse and format tree nodes."""
+        children = children_map.get(parent_level, [])
 
-        # Look ahead to determine if this is the last child at this depth
-        is_last = True
-        for j in range(i + 1, len(rows)):
-            future_depth = rows[j][0]
-            if future_depth < depth:
-                break
-            if future_depth == depth:
-                is_last = False
-                break
+        for i, (level, cnt) in enumerate(children):
+            is_last = (i == len(children) - 1)
+            depth = depth_map[(parent_level, level)]
 
-        # Update tracking for this depth
-        has_more_at_depth[depth] = not is_last
-
-        # Build the prefix
-        if depth == 0:
-            prefix = ""
-        else:
-            parts = []
-            # Add continuation lines for ancestors
-            for d in range(1, depth):
-                if has_more_at_depth.get(d, False):
-                    parts.append("│  ")
-                else:
-                    parts.append("   ")
-            # Add branch for current node
-            if is_last:
-                parts.append("└─ ")
+            # Build the prefix for this node
+            if depth == 0:
+                prefix = ""
             else:
-                parts.append("├─ ")
-            prefix = "".join(parts)
+                # Add branch for current node
+                if is_last:
+                    prefix = "".join(prefix_parts) + "└─ "
+                else:
+                    prefix = "".join(prefix_parts) + "├─ "
 
-        formatted_level = prefix + level
-        result.append((depth, formatted_level, cnt))
+            formatted_level = prefix + level
+            result.append((depth, formatted_level, cnt))
+
+            # Recursively traverse children
+            if level in children_map:
+                # Prepare prefix for children
+                if depth == 0:
+                    new_prefix_parts = []
+                else:
+                    if is_last:
+                        new_prefix_parts = prefix_parts + ["   "]
+                    else:
+                        new_prefix_parts = prefix_parts + ["│  "]
+                traverse(level, new_prefix_parts)
+
+    # Start traversal from root (parent_level = None)
+    traverse(None, [])
 
     return result
 
@@ -344,25 +353,29 @@ class ReedCommands:
             where = f"(id = {root_id})"
         query = f"""
         with recursive cte as (
-            select id, parent_id,
-            cast(level as text) as level_full,
-            level, 0 as depth
+            select
+            id,
+            level,
+            cast(NULL as text) as parent_level,
+            0 as depth
             from {table}
             where {where}
             union all
-            select t.id, t.parent_id,
-            concat(cte.level_full, '-', t.level) as level_full,
-            t.level, cte.depth + 1
+            select
+            t.id,
+            t.level,
+            cte.level as parent_level,
+            cte.depth + 1
             from {table} t
             inner join cte on t.parent_id = cte.id
         )
         select
             depth,
+            parent_level,
             level,
             count(*) as cnt
         from cte
-        group by depth, level
-        order by min(level_full)
+        group by depth, parent_level, level
         """
         on_error_resume = self.pgcli.on_error == "RESUME"
         results = self.pgcli.pgexecute.run(
@@ -374,8 +387,10 @@ class ReedCommands:
         for title, cur, headers, status, sql, success in results:
             if cur:
                 rows = list(cur)
-                formatted_rows = _format_tree_rows(rows)
-                yield title, formatted_rows, headers, status, sql, success
+                formatted_rows = _build_and_format_tree(rows)
+                # Update headers to remove parent_level
+                filtered_headers = ['depth', 'level', 'cnt']
+                yield title, formatted_rows, filtered_headers, status, sql, success
             else:
                 yield title, cur, headers, status, sql, success
 
