@@ -67,11 +67,7 @@ Commands for working with tables that have parent-child relationships (using `id
 
 ### Pager Integration
 
-- **Command scheduling from pager** - Integration with visidata-db for interactive drill operations
-  - Tracks last tabular command context using `@reed_tabular_command` decorator
-  - Reads reply file at `/tmp/rlocal/visidata/last-reply` after pager closes
-  - Supports `drill_up.<id>` and `drill_down.<id>` reply formats
-  - Auto-executes corresponding `\du` or `\dd` commands based on pager interaction
+- **Drill from visidata-db** - Run tabular command → select row → press `{` (drill up) or `}` (drill down) → auto-executes `\du`/`\dd` in CLI
 
 ### Autocompletion
 
