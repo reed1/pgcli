@@ -197,6 +197,18 @@ class ReedCommands:
             "\\df [recipe]",
             "Directed format - set pager and table format",
         )
+        self.pgcli.pgspecial.register(
+            self.info_tables,
+            "\\it",
+            "\\it [pattern]",
+            "Search tables by name pattern",
+        )
+        self.pgcli.pgspecial.register(
+            self.info_columns,
+            "\\ic",
+            "\\ic [pattern]",
+            "Search columns by name pattern",
+        )
 
     @reed_tabular_command
     def drill_one(self, pattern, **_):
@@ -668,6 +680,36 @@ class ReedCommands:
         else:
             raise ValueError(f"Unknown recipe '{arg}'. Use A or C.")
 
+    def info_tables(self, pattern, **_):
+        pattern = pattern.strip() if pattern else "%"
+        if pattern.isalnum():
+            pattern = f"%{pattern}%"
+        else:
+            pattern = pattern.replace("*", "%")
+        query = f"select * from information_schema.tables where table_name like '{pattern}'"
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
+    def info_columns(self, pattern, **_):
+        pattern = pattern.strip() if pattern else "%"
+        if pattern.isalnum():
+            pattern = f"%{pattern}%"
+        else:
+            pattern = pattern.replace("*", "%")
+        query = f"select * from information_schema.columns where column_name like '{pattern}'"
+        on_error_resume = self.pgcli.on_error == "RESUME"
+        return self.pgcli.pgexecute.run(
+            query,
+            self.pgcli.pgspecial,
+            on_error_resume=on_error_resume,
+            explain_mode=self.pgcli.explain_mode,
+        )
+
 
 def is_reed_command(cmd):
     return cmd in (
@@ -677,6 +719,8 @@ def is_reed_command(cmd):
         "\\du",
         "\\dk",
         "\\tree",
+        "\\it",
+        "\\ic",
         "\\gcol",
         "\\dc",
         "\\sct",

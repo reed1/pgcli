@@ -27,6 +27,11 @@ Commands for working with tables that have parent-child relationships (using `id
 
 ### Schema and Table Introspection
 
+- **`\it [pattern]`** - Search tables by name pattern in information_schema
+  - Alphanumeric patterns auto-wrap with `%`: `\it user` → `%user%`
+  - Use `*` for explicit wildcards: `\it user*` → `user%`
+- **`\ic [pattern]`** - Search columns by name pattern in information_schema
+  - Same pattern behavior as `\it`
 - **`\gcol [table]`** - Get columns list for a table with data types from information_schema
 - **`\dc [table] [columns]`** - Get distinct count grouped by specified columns
   - Example: `\dc users country city` shows count of users per country/city combination
