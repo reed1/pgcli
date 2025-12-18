@@ -3,6 +3,7 @@ import os
 import subprocess
 
 from pgcli.packages.sqlcompletion import Schema, Table, Column
+from pgcli.reed_watch import handle_watch_command as reed_handle_watch_command
 
 RVISIDATA_DB_LAST_REPLY_FILE = "/tmp/rlocal/visidata/last-reply"
 
@@ -134,6 +135,9 @@ class ReedCommands:
         self.pgcli = pgcli
 
     def register_special_commands(self) -> None:
+        # Patch watch command to use ASCII format and clear screen
+        self.pgcli.handle_watch_command = lambda text: reed_handle_watch_command(self.pgcli, text)
+
         self.pgcli.pgspecial.register(
             self.drill_one,
             "\\do",

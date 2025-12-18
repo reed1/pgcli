@@ -52,6 +52,10 @@ Commands for working with tables that have parent-child relationships (using `id
   - Recipe A: visidata-db pager with CSV format (default)
   - Recipe C: no pager with ASCII format
 
+### Patched Commands
+
+- **`\watch`** - Clears screen between iterations, forces ASCII format, disables pager, shows gray timestamp status
+
 ### Custom Key Bindings
 
 - **`Ctrl-E`** - Edit current input in external editor
