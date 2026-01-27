@@ -32,7 +32,7 @@ def _build_and_format_tree(rows):
         children = children_map.get(parent_level, [])
 
         for i, (level, cnt) in enumerate(children):
-            is_last = (i == len(children) - 1)
+            is_last = i == len(children) - 1
             depth = depth_map[(parent_level, level)]
 
             # Build the prefix for this node
@@ -144,39 +144,29 @@ class ReedCommands:
             "\\do table [id|order by ...]",
             "Get rows from table with optional id or order clause.",
         )
-        self.pgcli.pgspecial.register(
-            self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table."
-        )
+        self.pgcli.pgspecial.register(self.drill_down, "\\dd", "\\dd table parent_id", "Drill down a table.")
         self.pgcli.pgspecial.register(
             self.drill_down_recursive,
             "\\ddr",
             "\\ddr table row_id [where ...]",
             "Drill down recursive.",
         )
-        self.pgcli.pgspecial.register(
-            self.drill_up, "\\du", "\\dd table row_id", "Drill up a table."
-        )
+        self.pgcli.pgspecial.register(self.drill_up, "\\du", "\\dd table row_id", "Drill up a table.")
         self.pgcli.pgspecial.register(
             self.drill_down_kode,
             "\\dk",
             "\\dk table kode",
             "Drill down a table by dot-joined kode.",
         )
-        self.pgcli.pgspecial.register(
-            self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table."
-        )
-        self.pgcli.pgspecial.register(
-            self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table."
-        )
+        self.pgcli.pgspecial.register(self.print_tree, "\\tree", "\\tree table root_id", "Print tree of a table.")
+        self.pgcli.pgspecial.register(self.get_columns, "\\gcol", "\\gcol table", "Get columns of a table.")
         self.pgcli.pgspecial.register(
             self.get_distinct_count,
             "\\dc",
             "\\dc table col1 col2..",
             "Get distinct column values count.",
         )
-        self.pgcli.pgspecial.register(
-            self.show_create_table, "\\sct", "\\sct table", "Show create table."
-        )
+        self.pgcli.pgspecial.register(self.show_create_table, "\\sct", "\\sct table", "Show create table.")
         self.pgcli.pgspecial.register(
             self.show_create_table_dump,
             "\\sctd",
@@ -292,9 +282,7 @@ class ReedCommands:
     @reed_tabular_command
     def drill_down_recursive(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN} \d+( where .*)?$", pattern):
-            raise ValueError(
-                r"Invalid pattern. Should be \ddr table row_id [where ...]"
-            )
+            raise ValueError(r"Invalid pattern. Should be \ddr table row_id [where ...]")
         [table, row_id, *args] = re.split(r"\s+", pattern)
         cols = self.get_filtered_columns(table)
         extra = " ".join(args)
@@ -407,7 +395,7 @@ class ReedCommands:
                 rows = list(cur)
                 formatted_rows = _build_and_format_tree(rows)
                 # Update headers to remove parent_level
-                filtered_headers = ['depth', 'level', 'cnt']
+                filtered_headers = ["depth", "level", "cnt"]
                 yield title, formatted_rows, filtered_headers, status, sql, success
             else:
                 yield title, cur, headers, status, sql, success
@@ -535,9 +523,9 @@ class ReedCommands:
             name = row[1]
             definition = row[2]
 
-            if row_type == 'column':
+            if row_type == "column":
                 column_lines.append(f"  {name} {definition}")
-            elif row_type == 'index':
+            elif row_type == "index":
                 index_lines.append(f"{definition};")
 
         # Build CREATE TABLE statement
@@ -585,9 +573,7 @@ class ReedCommands:
             blocks = dump.split("\n\n")
 
             # Filter blocks that start with CREATE (after stripping)
-            create_blocks = [
-                block.strip() for block in blocks if block.strip().startswith("CREATE")
-            ]
+            create_blocks = [block.strip() for block in blocks if block.strip().startswith("CREATE")]
 
             if not create_blocks:
                 raise ValueError("No CREATE statements found in the dump.")
