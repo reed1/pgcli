@@ -352,6 +352,8 @@ class ReedCommands:
         select kode_full, {', '.join(cols)} from t
         order by depth, id
         """
+        with open("/tmp/dk_query.sql", "w") as f:
+            f.write(query)
         on_error_resume = self.pgcli.on_error == "RESUME"
         return self.pgcli.pgexecute.run(
             query,
@@ -611,14 +613,24 @@ class ReedCommands:
         )
         return [(None, [], [], None, "", True, False)]
 
+    def _get_current_schema(self):
+        res = self.pgcli.pgexecute.run("SELECT current_schema()")
+        for _, cur, *_ in res:
+            rows = cur.fetchall()
+            if rows:
+                return rows[0][0]
+        return "public"
+
     def get_filtered_columns(self, table_name: str):
+        schema = self._get_current_schema()
         res = self.pgcli.pgexecute.run(
-            f"select column_name from information_schema.columns where table_name = '{table_name}'"
+            f"select column_name from information_schema.columns where table_name = '{table_name}' and table_schema = '{schema}' order by ordinal_position"
         )
         for _, cur, *_ in res:
             rows = cur.fetchall()
         columns = [e[0] for e in rows]
 
+        excluded = {"depth", "kode_full"}
         if os.environ.get("USE_MINIMAL_COLUMN_SET", "0") == "1":
             minimal_column_set = [
                 "id",
@@ -629,9 +641,9 @@ class ReedCommands:
                 "nama",
                 "name",
             ]
-            return [e for e in minimal_column_set if e in columns]
+            return [e for e in minimal_column_set if e in columns and e not in excluded]
         else:
-            return columns
+            return [e for e in columns if e not in excluded]
 
     def load_table(self, pattern, **_):
         # Match file path in quotes and table name
