@@ -2,6 +2,8 @@ import re
 import os
 import subprocess
 
+import click
+
 from pgcli.packages.sqlcompletion import Schema, Table, Column
 from pgcli.reed_watch import handle_watch_command as reed_handle_watch_command
 
@@ -443,7 +445,15 @@ class ReedCommands:
             raise ValueError(r"Invalid pattern. Should be \sct table")
         table = pattern.strip()
 
-        # Query both columns and indexes in a single query
+        if "." in table:
+            schema, table_name = table.split(".", 1)
+            schema_filter_col = f"'{schema}'"
+            schema_filter_idx = f"'{schema}'"
+        else:
+            table_name = table
+            schema_filter_col = "current_schema()"
+            schema_filter_idx = "current_schema()"
+
         query = f"""
         SELECT 'column' as type,
                c.column_name as name,
@@ -463,14 +473,16 @@ class ReedCommands:
                as definition,
                c.ordinal_position as sort_order
         FROM information_schema.columns c
-        WHERE c.table_name = '{table}'
+        WHERE c.table_name = '{table_name}'
+          AND c.table_schema = {schema_filter_col}
         UNION ALL
         SELECT 'index' as type,
                i.indexname as name,
                i.indexdef as definition,
                0 as sort_order
         FROM pg_indexes i
-        WHERE i.tablename = '{table}'
+        WHERE i.tablename = '{table_name}'
+          AND i.schemaname = {schema_filter_idx}
         ORDER BY sort_order, name
         """
 
@@ -490,7 +502,8 @@ class ReedCommands:
             break
 
         if not rows:
-            raise ValueError(f"No data returned for table {table}")
+            click.secho(f"No data returned for table {table}", fg="yellow")
+            return [(None, [], [], None, "", True, False)]
 
         # Parse the combined result
         create_sql = self._parse_combined_output(table, rows)
