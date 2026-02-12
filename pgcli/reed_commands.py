@@ -390,15 +390,14 @@ class ReedCommands:
             on_error_resume=on_error_resume,
             explain_mode=self.pgcli.explain_mode,
         )
-        for title, cur, headers, status, sql, success in results:
+        for title, cur, headers, status, sql, success, is_special in results:
             if cur:
                 rows = list(cur)
                 formatted_rows = _build_and_format_tree(rows)
-                # Update headers to remove parent_level
                 filtered_headers = ["depth", "level", "cnt"]
-                yield title, formatted_rows, filtered_headers, status, sql, success
+                yield title, formatted_rows, filtered_headers, status, sql, success, is_special
             else:
-                yield title, cur, headers, status, sql, success
+                yield title, cur, headers, status, sql, success, is_special
 
     def get_columns(self, pattern, **_):
         if not re.match(rf"^{self.TABLE_PATTERN}$", pattern):
