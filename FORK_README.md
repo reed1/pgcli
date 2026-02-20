@@ -52,10 +52,6 @@ Commands for working with tables that have parent-child relationships (using `id
   - Recipe A: visidata-db pager with CSV format (default)
   - Recipe C: no pager with ASCII format
 
-### Patched Commands
-
-- **`\watch`** - Clears screen between iterations, forces ASCII format, disables pager, shows gray timestamp status
-
 ### Custom Key Bindings
 
 - **`Ctrl-E`** - Edit current input in external editor
@@ -63,10 +59,6 @@ Commands for working with tables that have parent-child relationships (using `id
   - Custom sorting: alphabetical for letters, reverse numerical for digits (recent years first)
   - Persists last selected schema to `~/.cache/rlocal/db/{DBCONFIG_ID}.last_schema`
   - Auto-generates and executes schema switch statement
-
-### Connection Management
-
-- **Connection keepalive thread** - Background daemon that pings database connection every 30 seconds to prevent timeout during long idle periods
 
 ### Safety Features
 
@@ -103,6 +95,10 @@ This fork integrates with several external tools for enhanced workflows:
 ---
 
 ## PostgreSQL-Specific Features
+
+### Connection Management
+
+- **Connection keepalive thread** - Background daemon that pings database connection every 30 seconds to prevent timeout during long idle periods
 
 ### Schema Support
 
