@@ -3,11 +3,19 @@ Upcoming (TBD)
 
 Features:
 ---------
+* Add support for `\\T` prompt escape sequence to display transaction status (similar to psql's `%x`).
+
+4.4.0 (2025-12-24)
+==================
+
+Features:
+---------
 * Add support for `init-command` to run when the connection is established.
     * Command line option `--init-command`
     * Provide `init-command` in the config file
     * Support dsn specific init-command in the config file
 * Add suggestion when setting the search_path
+* Allow per dsn_alias ssh tunnel selection
 
 Internal:
 ---------
