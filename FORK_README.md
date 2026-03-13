@@ -96,10 +96,6 @@ This fork integrates with several external tools for enhanced workflows:
 
 ## PostgreSQL-Specific Features
 
-### Connection Management
-
-- **Connection keepalive thread** - Background daemon that pings database connection every 30 seconds to prevent timeout during long idle periods
-
 ### Schema Support
 
 - **`\gcol [table]`** - Supports schema-qualified names: `\gcol schema.table`

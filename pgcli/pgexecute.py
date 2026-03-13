@@ -9,7 +9,6 @@ import psycopg.sql
 from psycopg.conninfo import make_conninfo
 import sqlparse
 
-from pgcli import connection_keepalive
 from .packages.parseutils.meta import FunctionMetadata, ForeignKey
 
 _logger = logging.getLogger(__name__)
@@ -233,8 +232,6 @@ class PGExecute:
             self.conn.close()
         self.conn = conn
         self.conn.autocommit = True
-
-        connection_keepalive.keepalive(self)
 
         if self.notify_callback is not None:
             self.conn.add_notify_handler(self.notify_callback)
@@ -508,8 +505,7 @@ class PGExecute:
             else:
                 template = "CREATE OR REPLACE VIEW {name} AS \n{stmt}"
             return (
-                psycopg.sql
-                .SQL(template)
+                psycopg.sql.SQL(template)
                 .format(
                     name=psycopg.sql.Identifier(result.nspname, result.relname),
                     stmt=psycopg.sql.SQL(result.viewdef),
