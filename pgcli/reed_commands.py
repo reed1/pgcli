@@ -194,6 +194,12 @@ class ReedCommands:
             "Directed format - set pager and table format",
         )
         self.pgcli.pgspecial.register(
+            self.table_row_count,
+            "\\trc",
+            "\\trc",
+            "Show tables with row counts (pg_stat + max id).",
+        )
+        self.pgcli.pgspecial.register(
             self.info_tables,
             "\\it",
             "\\it [pattern]",
@@ -694,6 +700,70 @@ class ReedCommands:
         else:
             raise ValueError(f"Unknown recipe '{arg}'. Use A or C.")
 
+    def table_row_count(self, pattern, **_):
+        # Step 1: Get tables and check for id column
+        schema_query = """
+        SELECT t.table_name,
+               MAX(CASE WHEN c.column_name = 'id'
+                   AND c.data_type IN ('integer', 'bigint', 'smallint') THEN 1 ELSE 0 END) as has_id
+        FROM information_schema.tables t
+        LEFT JOIN information_schema.columns c
+            ON t.table_name = c.table_name
+            AND t.table_schema = c.table_schema
+            AND c.column_name = 'id'
+        WHERE t.table_schema = current_schema()
+            AND t.table_type = 'BASE TABLE'
+        GROUP BY t.table_name
+        ORDER BY t.table_name
+        """
+
+        results = self.pgcli.pgexecute.run(schema_query, self.pgcli.pgspecial)
+        tables = []
+        for _, cur, *_ in results:
+            if cur:
+                tables = list(cur)
+
+        if not tables:
+            yield (None, [], [], None, "", True, False)
+            return
+
+        # Step 2: Build UNION ALL for max(id) - very fast, no count(*)
+        tables_with_id = [t[0] for t in tables if t[1] == 1]
+
+        max_id_map = {}
+        if tables_with_id:
+            union_parts = [f"SELECT '{t}' as table_name, MAX(id)::text as max_id FROM {t}" for t in tables_with_id]
+            max_id_query = " UNION ALL ".join(union_parts)
+            results = self.pgcli.pgexecute.run(max_id_query, self.pgcli.pgspecial)
+            for _, cur, *_ in results:
+                if cur:
+                    for row in cur:
+                        max_id_map[row[0]] = row[1]
+
+        # Step 3: Get pg_stat estimated counts
+        stat_query = """
+        SELECT relname, n_live_tup
+        FROM pg_stat_user_tables
+        WHERE schemaname = current_schema()
+        """
+        results = self.pgcli.pgexecute.run(stat_query, self.pgcli.pgspecial)
+        stat_map = {}
+        for _, cur, *_ in results:
+            if cur:
+                for row in cur:
+                    stat_map[row[0]] = row[1]
+
+        # Step 4: Combine results
+        combined_rows = []
+        for table_name, has_id in tables:
+            pg_stat = stat_map.get(table_name, 0)
+            max_id = max_id_map.get(table_name)
+            combined_rows.append((table_name, pg_stat, max_id))
+
+        headers = ["table_name", "pg_stat_count", "max_id"]
+        status = f"SELECT {len(combined_rows)}"
+        yield (None, combined_rows, headers, status, "", True, False)
+
     def info_tables(self, pattern, **_):
         pattern = pattern.strip() if pattern else "%"
         if pattern.isalnum():
@@ -742,6 +812,7 @@ def is_reed_command(cmd):
         "\\lt",
         "\\tc",
         "\\df",
+        "\\trc",
     )
 
 

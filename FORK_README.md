@@ -24,6 +24,7 @@ Commands for working with tables that have parent-child relationships (using `id
   - `\do users order by created_at desc` - Get rows sorted (auto-adds LIMIT 100)
   - `\do users order by created_at desc limit 50` - Custom limit
 - **`\tree [table] [root_id]`** - Display hierarchical tree structure with visual indentation
+- **`\trc`** - Show tables with row counts
 
 ### Schema and Table Introspection
 
