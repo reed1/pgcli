@@ -193,7 +193,6 @@ class PGCli:
         self.pgexecute = pgexecute
         self.dsn_alias = None
         self.watch_command = None
-        self._pending_command_from_pager = None
 
         # Load config.
         c = self.config = get_config(pgclirc_file)
@@ -291,7 +290,8 @@ class PGCli:
         self.completer = completer
         self._completer_lock = threading.Lock()
         self.register_special_commands()
-        (ReedCommands(self)).register_special_commands()
+        self.reed_commands = ReedCommands(self)
+        self.reed_commands.register_special_commands()
 
         self.prompt_app = None
 
@@ -857,6 +857,10 @@ class PGCli:
             logger.error("traceback: %r", traceback.format_exc())
             click.secho(str(e), err=True, fg="red")
         else:
+            # Record drill context before output, since the pager blocks here.
+            from .reed_commands import set_active_table_from_sql
+
+            set_active_table_from_sql(text)
             try:
                 if self.output_file and not text.startswith(("\\o ", "\\log-file", "\\? ", "\\echo ")):
                     try:
@@ -980,19 +984,14 @@ class PGCli:
 
         try:
             while True:
-                # Check for pending command from pager
-                if self._pending_command_from_pager:
-                    text = self._pending_command_from_pager
-                    self._pending_command_from_pager = None
-                else:
-                    try:
-                        text = self.prompt_app.prompt()
-                    except KeyboardInterrupt:
+                try:
+                    text = self.prompt_app.prompt()
+                except KeyboardInterrupt:
+                    continue
+                except EOFError:
+                    if not self._check_ongoing_transaction_and_allow_quitting():
                         continue
-                    except EOFError:
-                        if not self._check_ongoing_transaction_and_allow_quitting():
-                            continue
-                        raise
+                    raise
 
                 try:
                     text = self.handle_editor_command(text)
@@ -1018,6 +1017,10 @@ class PGCli:
         except (PgCliQuitError, EOFError):
             if not self.less_chatty:
                 print("Goodbye!")
+        finally:
+            from .reed_commands import shutdown_socket_server
+
+            shutdown_socket_server()
 
     def handle_watch_command(self, text):
         # Initialize default metaquery in case execution fails
@@ -1367,14 +1370,11 @@ class PGCli:
             else:
                 click.echo(text, color=color)
         else:
-            click.echo_via_pager(text, color)
+            if "visidata-db" in os.environ.get("PAGER", ""):
+                from .reed_commands import ensure_socket_server
 
-            # Call on_pager_close from reed_commands module
-            from .reed_commands import on_pager_close
-            pending_cmd = on_pager_close()
-            if pending_cmd:
-                # Schedule the command to be executed in the next iteration
-                self._pending_command_from_pager = pending_cmd
+                ensure_socket_server(self.reed_commands)
+            click.echo_via_pager(text, color)
 
 
 @click.command()

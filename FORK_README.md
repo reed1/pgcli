@@ -69,7 +69,13 @@ Commands for working with tables that have parent-child relationships (using `id
 
 ### Pager Integration
 
-- **Drill from visidata-db** - Run tabular command → select row → press `{` (drill up) or `}` (drill down) → auto-executes `\du`/`\dd` in CLI
+- **Drill from visidata-db** - While visidata-db is open, drill operations run live against the database and load straight back into the open viewer — no need to close the pager.
+  - Select a row → press `{` (drill up) or `}` (drill down) to navigate the hierarchy of the active table
+  - Open a related table by id without leaving visidata-db (open-table action)
+- **How it works** - When visidata-db is launched as the pager, the CLI starts a per-process Unix-domain **socket server** on a daemon thread and exports its path via the `DB_SOCKET` environment variable. visidata-db connects to that socket and sends a newline-terminated JSON request (`{"action": "drill_up"|"drill_down"|"open_table", ...}`); the CLI runs the corresponding drill query on the live connection and returns CSV. Because the CLI's main thread is blocked inside the pager while it is open, the socket handler can safely reuse the live database connection.
+  - The socket server is started lazily on first pager use and shut down when the CLI exits.
+  - This replaces the deprecated reply-file mechanism (`/tmp/rlocal/visidata/last-reply`), which required closing the pager so the CLI could re-execute `\du`/`\dd` on the next prompt iteration.
+- **Drill context** - The active table for drill operations is tracked from the last drill command (`\do`, `\du`, etc.) and from plain `select ... from <table>` queries, so you can run an ordinary query and immediately drill into its rows from visidata-db. Qualified `schema.table` references remember the schema, so a later unqualified open-table reuses it.
 
 ### Autocompletion
 
@@ -83,6 +89,7 @@ Custom commands support intelligent autocompletion:
 
 - **`USE_MINIMAL_COLUMN_SET`** - When set to "1", filters columns to minimal set: `id`, `parent_id`, `level`, `kode`, `code`, `nama`, `name`
 - **`PAGER`** - Can be set to "visidata-db" for custom tabular data viewing
+- **`DB_SOCKET`** - Set by the CLI (not the user) to the path of the per-process drill socket while visidata-db is open; visidata-db reads it to send live drill/open-table requests back to the CLI
 - **`DBCONFIG_ID`** - Used for schema persistence cache file naming
 
 ### External Tool Integration

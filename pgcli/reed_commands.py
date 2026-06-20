@@ -1,3 +1,6 @@
+import csv
+import io
+import json
 import re
 import os
 import subprocess
@@ -7,7 +10,7 @@ import click
 from pgcli.packages.sqlcompletion import Schema, Table, Column
 from pgcli.reed_watch import handle_watch_command as reed_handle_watch_command
 
-RVISIDATA_DB_LAST_REPLY_FILE = "/tmp/rlocal/visidata/last-reply"
+DB_SOCKET_ENV = "DB_SOCKET"
 
 
 def _build_and_format_tree(rows):
@@ -70,64 +73,123 @@ def _build_and_format_tree(rows):
 
 # Track the last tabular command context
 _last_tabular_command_table = None
+# Last schema seen on a qualified table; preserved across unqualified references
+# so "open table" can reuse it (select * from <schema>.<table> ...).
+_last_schema = None
+
+# One socket server per pgcli process, started lazily when first needed.
+_socket_server = None
 
 
 def reed_tabular_command(func):
-    """Decorator to mark commands as reed tabular commands."""
+    """Track the table a tabular command was last invoked on, for drill context."""
 
-    # Wrap the function to track when it's called
     def wrapper(*args, **kwargs):
-        global _last_tabular_command_table
+        global _last_tabular_command_table, _last_schema
 
-        # Clean up the reply file
-        if os.path.exists(RVISIDATA_DB_LAST_REPLY_FILE):
-            os.remove(RVISIDATA_DB_LAST_REPLY_FILE)
-
-        # Extract table and id from arguments for tracking
-        pattern = None
-        if kwargs.get("pattern"):
-            pattern = kwargs["pattern"]
-        elif len(args) > 1:
+        pattern = kwargs.get("pattern")
+        if not pattern and len(args) > 1:
             pattern = args[1]
 
         if pattern:
             arg_parts = re.split(r"\s+", pattern.strip())
-            if len(arg_parts) >= 1:
+            if arg_parts and arg_parts[0]:
                 _last_tabular_command_table = arg_parts[0]
+                if "." in arg_parts[0]:
+                    _last_schema = arg_parts[0].split(".", 1)[0]
 
         return func(*args, **kwargs)
 
     return wrapper
 
 
-def on_pager_close():
-    """Called after the pager closes. Returns pending command if there is one."""
-    global _last_tabular_command_table
+def set_active_table_from_sql(sql):
+    """Record the first table referenced by a plain SQL query as the drill context.
 
-    if not os.path.exists(RVISIDATA_DB_LAST_REPLY_FILE):
-        return None
+    Lets `select * from <table>` feed drill up/down just like the \\do family.
+    Reuses pgcli's own table extractor; backslash commands yield no tables and
+    leave the context untouched.
+    """
+    global _last_tabular_command_table, _last_schema
 
-    with open(RVISIDATA_DB_LAST_REPLY_FILE, "r") as f:
-        last_reply = f.read().strip()
+    from pgcli.packages.parseutils.tables import extract_tables
 
-    if not last_reply or not _last_tabular_command_table:
-        return None
+    tables = extract_tables(sql)
+    if not tables:
+        return
+    ref = tables[0]
+    if ref.schema:
+        _last_schema = ref.schema
+    _last_tabular_command_table = f"{ref.schema}.{ref.name}" if ref.schema else ref.name
 
-    # Parse the reply format
-    if last_reply.startswith("drill_up."):
-        # Extract ID from drill_up.<id> format
-        parts = last_reply.split(".")
-        new_id = parts[1]
-        command_to_execute = f"\\du {_last_tabular_command_table} {new_id}"
-        return command_to_execute
-    elif last_reply.startswith("drill_down."):
-        # Extract ID from drill_down.<id> format
-        parts = last_reply.split(".")
-        new_id = parts[1]
-        command_to_execute = f"\\dd {_last_tabular_command_table} {new_id}"
-        return command_to_execute
 
-    return None
+def _results_to_csv(results):
+    out = io.StringIO()
+    writer = csv.writer(out)
+    for _title, cur, headers, _status, _sql, _success, _is_special in results:
+        if headers:
+            writer.writerow(headers)
+        if cur is not None:
+            for row in cur:
+                writer.writerow(["" if value is None else value for value in row])
+    return out.getvalue()
+
+
+def ensure_socket_server(reed_commands):
+    """Start the per-process socket server on first use and export its path.
+
+    VisiData runs as pgcli's pager, so while it is open pgcli's main thread is
+    blocked in echo_via_pager and never touches the connection — the server can
+    safely reuse the live connection to answer drill requests.
+    """
+    global _socket_server
+    if _socket_server is not None:
+        return _socket_server
+
+    from pgcli.packages.socket_server import SocketServer
+
+    server = SocketServer(lambda request: _handle_request(reed_commands, request))
+    server.start()
+    os.environ[DB_SOCKET_ENV] = server.path
+    _socket_server = server
+    return server
+
+
+def shutdown_socket_server():
+    global _socket_server
+    if _socket_server is not None:
+        _socket_server.stop()
+        _socket_server = None
+    os.environ.pop(DB_SOCKET_ENV, None)
+
+
+def _handle_request(reed_commands, request):
+    req = json.loads(request)
+    try:
+        csv_text = _run_action(reed_commands, req)
+        return json.dumps({"ok": True}).encode() + b"\n" + csv_text.encode()
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)}).encode() + b"\n"
+
+
+def _run_action(reed_commands, req):
+    action = req["action"]
+
+    if action in ("drill_up", "drill_down"):
+        table = _last_tabular_command_table
+        if not table:
+            raise RuntimeError("No active table context to drill from")
+        pattern = f"{table} {req['id']}"
+        results = reed_commands.drill_up(pattern) if action == "drill_up" else reed_commands.drill_down(pattern)
+    elif action == "open_table":
+        table = req["table"]
+        if _last_schema and "." not in table:
+            table = f"{_last_schema}.{table}"
+        results = reed_commands.drill_one(f"{table} {req['id']}")
+    else:
+        raise RuntimeError(f"Unknown action: {action}")
+
+    return _results_to_csv(results)
 
 
 class ReedCommands:
