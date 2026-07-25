@@ -1,6 +1,8 @@
 import logging
 import os
 import subprocess
+from urllib.parse import quote
+
 from prompt_toolkit.key_binding import KeyBindings
 
 _logger = logging.getLogger(__name__)
@@ -24,11 +26,7 @@ def add_custom_key_bindings(kb, pgcli):
         result = pgcli.pgexecute.run(query)
         schemas = [row[0] for _, cur, *_ in result for row in cur.fetchall()]
         filtereds = sorted(
-            [
-                e
-                for e in schemas
-                if not e.startswith("pg_") and e != "information_schema"
-            ]
+            [e for e in schemas if not e.startswith("pg_") and e != "information_schema"]
         )
         sorteds = custom_sort_schemas(filtereds)
         schema = subprocess.run(
@@ -43,6 +41,30 @@ def add_custom_key_bindings(kb, pgcli):
         buff = event.app.current_buffer
         buff.text = f"set search_path to '{schema}';"
         buff.validate_and_handle()
+
+    @kb.add("c-o")
+    def _(_event):
+        """Open the current connection in vdsql"""
+        _logger.debug("Detected <C-o> key.")
+        launch_vdsql(pgcli)
+
+
+def launch_vdsql(pgcli):
+    subprocess.Popen(
+        ["kitty", "@", "launch", "--type=overlay", "vdsql", build_vdsql_url(pgcli.pgexecute)],
+        stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def build_vdsql_url(pgexecute):
+    user = quote(pgexecute.user or "", safe="")
+    password = quote(pgexecute.password or "", safe="")
+    host = pgexecute.host or "127.0.0.1"
+    port = pgexecute.port or 5432
+    dbname = pgexecute.dbname or ""
+    return f"postgres://{user}:{password}@{host}:{port}/{dbname}"
 
 
 def custom_sort_schemas(schemas):
