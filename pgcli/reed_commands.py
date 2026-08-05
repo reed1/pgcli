@@ -529,7 +529,7 @@ class ReedCommands:
                CASE
                    WHEN c.character_maximum_length IS NOT NULL
                    THEN '(' || c.character_maximum_length || ')'
-                   WHEN c.numeric_precision IS NOT NULL
+                   WHEN c.data_type IN ('numeric', 'decimal') AND c.numeric_precision IS NOT NULL
                    THEN '(' || c.numeric_precision ||
                         CASE WHEN c.numeric_scale IS NOT NULL
                         THEN ',' || c.numeric_scale ELSE '' END || ')'
@@ -585,6 +585,8 @@ class ReedCommands:
                 "launch",
                 "--type=overlay",
                 "show-sql",
+                "-l",
+                "postgresql",
                 "/tmp/sct_query.sql",
             ],
             check=True,
@@ -609,7 +611,8 @@ class ReedCommands:
                 index_lines.append(f"{definition};")
 
         # Build CREATE TABLE statement
-        create_table = f"CREATE TABLE {table} (\n"
+        create_table = "-- WARNING: approximate fast lookup, not runnable DDL. Use \\sctd for the real pg_dump.\n"
+        create_table += f"CREATE TABLE {table} (\n"
         create_table += ",\n".join(column_lines)
         create_table += "\n);"
 
@@ -649,17 +652,16 @@ class ReedCommands:
         )
 
         def extract_table_dump(dump: str):
-            # Split by double newlines to get blocks
-            blocks = dump.split("\n\n")
+            # Keep every DDL statement, dropping only pg_dump's session boilerplate and
+            # its psql meta-commands, which sql-formatter refuses to parse.
+            noise = re.compile(r"^(--|\\|SET\s|SELECT pg_catalog\.set_config)")
+            kept = "\n".join(line for line in dump.splitlines() if not noise.match(line))
+            ddl = re.sub(r"\n{3,}", "\n\n", kept).strip()
 
-            # Filter blocks that start with CREATE (after stripping)
-            create_blocks = [block.strip() for block in blocks if block.strip().startswith("CREATE")]
+            if not ddl:
+                raise ValueError("No DDL found in the dump.")
 
-            if not create_blocks:
-                raise ValueError("No CREATE statements found in the dump.")
-
-            # Join blocks back with double newline
-            return "\n\n".join(create_blocks)
+            return ddl
 
         table_dump = extract_table_dump(output.stdout).strip()
         with open("/tmp/sct_query.sql", "w") as f:
@@ -671,6 +673,8 @@ class ReedCommands:
                 "launch",
                 "--type=overlay",
                 "show-sql",
+                "-l",
+                "postgresql",
                 "/tmp/sct_query.sql",
             ],
             check=True,
