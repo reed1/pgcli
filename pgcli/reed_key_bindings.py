@@ -64,7 +64,10 @@ def build_vdsql_url(pgexecute):
     host = pgexecute.host or "127.0.0.1"
     port = pgexecute.port or 5432
     dbname = pgexecute.dbname or ""
-    return f"postgres://{user}:{password}@{host}:{port}/{dbname}"
+    with pgexecute.conn.cursor() as cur:
+        cur.execute("SELECT current_schema()")
+        (schema,) = cur.fetchone()
+    return f"postgres://{user}:{password}@{host}:{port}/{dbname}/{quote(schema, safe='')}"
 
 
 def custom_sort_schemas(schemas):
